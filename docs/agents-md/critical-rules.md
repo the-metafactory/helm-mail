@@ -1,0 +1,1 @@
+- This repository is public. Never commit an account name, address, mail host, credential or real mail. Fixtures use invented data. Deployment values live in the stack's configuration on the machine that runs it.

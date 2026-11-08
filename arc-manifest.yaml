@@ -1,0 +1,22 @@
+schema: arc/v1
+name: helm-mail
+version: 0.1.0
+type: component
+tier: custom
+description: "Mail capabilities for Helm and a Desk adapter, generic over a versioned mail connection interface."
+license: MIT
+
+author:
+  name: Jens-Christian Fischer
+  github: jcfischer
+
+repository: "the-metafactory/helm-mail"
+
+capabilities:
+  filesystem:
+    read: []
+    write: []
+  network: []
+  bash:
+    allowed: false
+  secrets: []

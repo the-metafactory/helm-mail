@@ -1,0 +1,12 @@
+template: compass-standards
+generate:
+  - format: claude-md
+repo_name: helm-mail
+repo_description: "Mail capabilities for Helm and a Desk adapter, generic over a versioned mail connection interface"
+deploy_command: "arc upgrade helm-mail"
+version_source: arc-manifest.yaml
+sections:
+  - position: "after:description"
+    file: docs/agents-md/architecture.md
+  - position: "after:critical-rules"
+    file: docs/agents-md/critical-rules.md

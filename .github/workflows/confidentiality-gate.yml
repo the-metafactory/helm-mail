@@ -1,0 +1,21 @@
+name: confidentiality-gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * 1"
+permissions:
+  contents: read
+jobs:
+  gate:
+    uses: the-metafactory/metafactory-actions/.github/workflows/confidentiality-gate.yml@8ed0ab26f804aa98f74dcdcaf86917e09459f874
+    permissions:
+      contents: read
+    with:
+      engine_sha: 8ed0ab26f804aa98f74dcdcaf86917e09459f874
+      require_denylist: false
+    secrets:
+      MF_CONFIDENTIALITY_DENYLIST: ${{ secrets.MF_CONFIDENTIALITY_DENYLIST }}
+      CONF_DENYLIST_PEPPER: ${{ secrets.CONF_DENYLIST_PEPPER }}
