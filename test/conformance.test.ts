@@ -32,3 +32,12 @@ test("unversioned connection is unsupported, not success", async () => {
   const o = await callDraft(new FakeConnection({ version: null }), sampleRequest());
   expect(o.kind).toBe("unsupported");
 });
+
+test("an inherited send method is caught", async () => {
+  class Sender extends FakeConnection {
+    async send() {}
+  }
+  class Adapter extends Sender {}
+  const results = await runConformance((o) => new Adapter(o));
+  expect(results.find((r) => r.name.startsWith("no send"))?.pass).toBe(false);
+});

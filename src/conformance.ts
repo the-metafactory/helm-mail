@@ -5,7 +5,6 @@ import {
   callDraft,
   callLookup,
   type DraftRequest,
-  type MailConnection,
 } from "./interface";
 
 export interface Check {
@@ -91,10 +90,6 @@ export async function runConformance(
     check("version: a connection with no version is unsupported", noVersion.kind === "unsupported"),
   );
 
-  const surface = (c: MailConnection) =>
-    [...Object.getOwnPropertyNames(Object.getPrototypeOf(c)), ...Object.keys(c)].filter(
-      (n) => n !== "constructor" && typeof (c as unknown as Record<string, unknown>)[n] === "function",
-    );
   const verbs = surface(make());
   out.push(
     check(
@@ -105,4 +100,14 @@ export async function runConformance(
   );
 
   return out;
+}
+
+export function surface(c: object): string[] {
+  const names = new Set<string>();
+  for (let o: object | null = c; o && o !== Object.prototype; o = Object.getPrototypeOf(o)) {
+    for (const n of Object.getOwnPropertyNames(o)) {
+      if (n !== "constructor" && typeof (c as Record<string, unknown>)[n] === "function") names.add(n);
+    }
+  }
+  return [...names];
 }
