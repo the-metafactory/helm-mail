@@ -1,0 +1,15 @@
+{
+  "name": "helm-mail",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mail capabilities for Helm and a Desk adapter, generic over a versioned mail connection interface.",
+  "license": "MIT",
+  "scripts": {
+    "test": "bun test",
+    "conformance": "bun run src/conformance-cli.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}
