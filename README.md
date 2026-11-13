@@ -4,7 +4,17 @@ helm-mail adds mail capabilities to Helm and gives the Cortex Desk a mail adapte
 
 ## Status
 
-This repository has no code yet. It holds the package manifest, license and CI, so the work below can land here.
+Interface 1.0 supports draft creation and draft lookup, with a fake connection,
+a CLI connection and conformance runners. See [the CLI connection](docs/cli-connection.md)
+for deployment configuration and the opt-in test-mailbox probe.
+
+```sh
+bun install
+bun test
+bun run conformance
+```
+
+The default conformance run uses only the fake connection and contacts no mailbox.
 
 | Step | Tracked in |
 | --- | --- |
