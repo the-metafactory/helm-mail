@@ -26,6 +26,7 @@ export class CliConnection implements MailConnection {
   }
 
   async draft(request: DraftRequest): Promise<unknown> {
+    const deadline = performance.now() + this.timeoutMs;
     if (request.version !== INTERFACE_VERSION) throw new Error("Unsupported draft request version");
     this.validateRequestId(request.requestId);
     for (const field of ["account", "messageId", "recipient", "subject"] as const) {
@@ -34,7 +35,7 @@ export class CliConnection implements MailConnection {
       }
     }
     if (typeof request.body !== "string") throw new Error("Draft body must be text");
-    const existing = parseLookupResult(await this.lookup(request.requestId));
+    const existing = parseLookupResult(await this.runLookup(request.requestId, deadline));
     if (!existing) throw new Error("Mail CLI returned an unstructured lookup result");
     if (existing.status === "unavailable") throw new Error("Mail CLI draft lookup is unavailable");
     if (existing.status === "found" && existing.account !== request.account) {
@@ -53,15 +54,20 @@ export class CliConnection implements MailConnection {
         `--subject=${request.subject}`,
         `--file=${bodyFile}`,
         "--no-markdown", "--output=json",
-      ]);
+      ], deadline);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   }
 
   async lookup(requestId: string): Promise<unknown> {
+    const deadline = performance.now() + this.timeoutMs;
     this.validateRequestId(requestId);
-    return this.run(["draft", "lookup", "--output=json", "--", requestId]);
+    return this.runLookup(requestId, deadline);
+  }
+
+  private runLookup(requestId: string, deadline: number): Promise<unknown> {
+    return this.run(["draft", "lookup", "--output=json", "--", requestId], deadline);
   }
 
   private validateRequestId(requestId: string): void {
@@ -70,7 +76,8 @@ export class CliConnection implements MailConnection {
     }
   }
 
-  private async run(args: string[]): Promise<unknown> {
+  private async run(args: string[], deadline: number): Promise<unknown> {
+    if (performance.now() >= deadline) throw new Error("Mail CLI timeout; draft outcome is unknown");
     const child = Bun.spawn([...this.command, ...args], {
       env: this.env,
       stdin: "ignore",
@@ -81,7 +88,7 @@ export class CliConnection implements MailConnection {
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGKILL");
-    }, this.timeoutMs);
+    }, Math.max(0, deadline - performance.now()));
     try {
       const [stdout, code] = await Promise.all([
         new Response(child.stdout).text(), child.exited,

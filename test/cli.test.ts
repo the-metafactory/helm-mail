@@ -54,6 +54,28 @@ test("CLI failures and malformed replies stay unknown, including nonzero not_fou
   }
 });
 
+test("draft shares its timeout across lookup and creation and kills the unfinished save", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "helm-mail-test-"));
+  const capture = join(directory, "capture.json");
+  const marker = join(directory, "created");
+  try {
+    const connection = new CliConnection({
+      command,
+      timeoutMs: 1000,
+      env: { CAPTURE: capture, CREATED_MARKER: marker, LOOKUP_DELAY_MS: "600", CREATE_DELAY_MS: "600" },
+    });
+    const result = await callDraft(connection, sampleRequest(), 1600);
+    expect(result.kind).toBe("unknown");
+    const captured = JSON.parse(await readFile(capture, "utf8"));
+    expect(captured.args[1]).toBe("create");
+    expect(() => process.kill(captured.pid, 0)).toThrow();
+    expect(await stat(marker).catch(() => null)).toBeNull();
+    expect(await stat(captured.args.find((a: string) => a.startsWith("--file=")).slice(7)).catch(() => null)).toBeNull();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("unsupported requests and unsafe IDs never start the CLI", async () => {
   const connection = new CliConnection({ command: ["/nonexistent-mail-cli"] });
   await expect(connection.draft(sampleRequest({ version: 2 }))).rejects.toThrow("Unsupported");

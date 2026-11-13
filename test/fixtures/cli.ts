@@ -5,8 +5,14 @@ const bodyFile = args.find((a) => a.startsWith("--file="))?.slice(7);
 if (process.env.CAPTURE) {
   writeFileSync(process.env.CAPTURE, JSON.stringify({
     args,
+    pid: process.pid,
     body: bodyFile ? readFileSync(bodyFile, "utf8") : undefined,
   }));
+}
+const delay = args[1] === "lookup" ? process.env.LOOKUP_DELAY_MS : process.env.CREATE_DELAY_MS;
+if (delay) await Bun.sleep(Number(delay));
+if (args[1] === "create" && process.env.CREATED_MARKER) {
+  writeFileSync(process.env.CREATED_MARKER, "created");
 }
 switch (process.env.FAULT) {
   case "timeout": await Bun.sleep(30_000); break;

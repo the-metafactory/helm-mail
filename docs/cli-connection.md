@@ -50,8 +50,11 @@ There is no local success ledger or lookup cache.
 
 The connection exposes no send verb. It never invokes a send command. Nonzero
 exits, timeouts and malformed replies become `unknown` through `callDraft` and
-`callLookup`; they do not imply that a draft was not created. The default process
-timeout is four seconds and kills the CLI process. When increasing it, also
+`callLookup`; they do not imply that a draft was not created. The default connection
+timeout is four seconds per operation. Draft lookup and creation share this single
+deadline, including body-file preparation; creation does not start if the budget
+has expired. The connection kills an unfinished CLI process and waits for it to
+exit before returning. When increasing the connection timeout, also
 increase the wrapper call's timeout (five seconds by default). An unknown outcome
 requires lookup before deciding whether to retry. The CLI's check and save are
 separate provider operations: callers must serialize submissions for a request
@@ -79,7 +82,7 @@ Import its types from `src/mailbox-conformance.ts` and implement these hooks:
 | `request` | Invented content with a fresh request ID of at most 192 characters; its account is the test account. |
 | `inspect(requestId)` | Independently read the provider's Drafts folder and return every exact matching draft as `DraftSnapshot`. Do not derive observations from CLI replies or a local ledger. |
 | `remove(draft)` | Remove only the draft passed by the run, directly through the provider to simulate hand removal. |
-| `timeoutMs` | Optional per-call timeout; set it above the connection's process timeout. |
+| `timeoutMs` | Optional per-call timeout; set it above the connection's operation timeout. |
 
 `DraftSnapshot.messageId` is the original message's ID from the draft's
 `In-Reply-To` header; `id` is the draft's own ID. Inspect the account, recipient,
