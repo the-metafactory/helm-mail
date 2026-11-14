@@ -59,7 +59,7 @@ export function fakeBridge(connections: Record<string, string>, options: { stale
     });
   }
   const host: DeskAdapterHost = {
-    sdkVersion: "1.6.0",
+    sdkVersion: "1.8.0",
     registerConnector: () => undefined,
     mail: { listed: (connection: DeskAdapterConnection) => Promise.resolve(listings.get(connection.connectionId) ?? null) },
   };

@@ -71,7 +71,7 @@ function capability(capabilityId, label, kind, objectTypes, input, output) {
   return { capabilityId, label, kind, objectTypes, inputSchemaRef: ref(input), outputSchemaRef: ref(output), errorSchemaRef: ref(SCHEMAS.error) };
 }
 var base = { version: "1.0.0", adapterId: ADAPTER_ID };
-var messageQuery = { objectsPointer: "/items", aggregatePointers: ["/health"], ordering: "provider", stableSnapshot: false, limits: { items: PAGE_LIMIT } };
+var messageQuery = { objectsPointer: "/items", aggregatePointers: ["/health"], ordering: "provider", stableSnapshot: true, limits: { items: PAGE_LIMIT } };
 var readBindings = [
   { ...base, capabilityId: CAPABILITIES.mailboxes, mode: "destinations", objectType: "mailbox", inputSchemaRef: ref(SCHEMAS.empty), outputSchemaRef: ref(SCHEMAS.mailboxes), display: { title: "/label" } },
   { ...base, capabilityId: CAPABILITIES.listed, mode: "query", objectType: "message", inputSchemaRef: ref(SCHEMAS.queryInput), outputSchemaRef: ref(SCHEMAS.messages), destinationType: "mailbox", display: { title: "/subject" }, query: messageQuery },
@@ -139,6 +139,7 @@ var evidence = (connectionId, message, at) => ({
   revision: `${message.receivedAt}|${message.subject.length}|${message.firstParagraph.length}`,
   observedAt: at
 });
+var listingDigest = (health, messages) => createHash("sha256").update(JSON.stringify([health, messages])).digest("hex").slice(0, 32);
 function messagePage(host) {
   return async (request) => {
     const connectionId = connectionOf(request);
@@ -165,7 +166,7 @@ function messagePage(host) {
       })),
       observedAt,
       ordering: "provider",
-      snapshot: { kind: "live" },
+      snapshot: { kind: "stable", id: listingDigest(health, matching) },
       ...next < matching.length ? { cursor: String(next) } : {}
     };
   };

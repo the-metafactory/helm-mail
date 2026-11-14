@@ -8,7 +8,7 @@ const mailbox = (connectionId: string) => ({ adapterId: "mail", connectionId, ob
 const request = (connectionId: string, input: Record<string, unknown> = {}, extra: Partial<QueryFetchRequest> = {}): QueryFetchRequest => ({
   readVersion: "1.0.0", queryId: "q", capabilityId: CAPABILITIES.listed, input: input as QueryFetchRequest["input"], destinations: [mailbox(connectionId)], limit: 20, ...extra,
 });
-interface Page { payload: { items: { messageId: string; account: string; from: unknown; subject: string; receivedAt: string; firstParagraph: string }[]; health: string }; annotations: { ref: { adapterId: string; connectionId: string; objectType: string; canonicalId: string }; evidence: { observedAt: string } }[]; cursor?: string }
+interface Page { payload: { items: { messageId: string; account: string; from: unknown; subject: string; receivedAt: string; firstParagraph: string }[]; health: string }; annotations: { ref: { adapterId: string; connectionId: string; objectType: string; canonicalId: string }; evidence: { observedAt: string } }[]; cursor?: string; snapshot: { kind: string; id?: string } }
 
 const query = async (host: DeskAdapterHost, req: QueryFetchRequest): Promise<Page> => {
   const handler = createDeskAdapter(host).bindings.handlers[CAPABILITIES.listed];
@@ -30,6 +30,17 @@ describe("the mail adapter's bounded query", () => {
     expect(page.payload.items).toEqual([{ messageId: "<one@example.test>", account: ACCOUNT_ONE, from: { name: "Sender Example", address: "sender@example.test" }, subject: "Subject one", receivedAt: "2026-11-14T07:00:00.000Z", firstParagraph: "Opening line." }]);
     expect(JSON.stringify(page)).not.toContain(BODY_CANARY);
     expect(page.payload.health).toBe("fresh");
+  });
+
+  test("names its snapshot by the listing's content, so a listing that changes between pages cannot pass as the same", async () => {
+    const mail = [item("<a@example.test>", ACCOUNT_ONE, "A"), item("<b@example.test>", ACCOUNT_ONE, "B"), item("<c@example.test>", ACCOUNT_ONE, "C")];
+    const first = await query(fakeBridge({ one: ACCOUNT_ONE }, { mail }).host, request("one", {}, { limit: 1 }));
+    const again = await query(fakeBridge({ one: ACCOUNT_ONE }, { mail }).host, request("one", {}, { limit: 1, cursor: first.cursor! }));
+    const reordered = await query(fakeBridge({ one: ACCOUNT_ONE }, { mail: [mail[0]!, mail[2]!, mail[1]!] }).host, request("one", {}, { limit: 1, cursor: first.cursor! }));
+
+    expect(first.snapshot.kind).toBe("stable");
+    expect(again.snapshot.id).toBe(first.snapshot.id);
+    expect(reordered.snapshot.id).not.toBe(first.snapshot.id);
   });
 
   test("reads one listed mail by Message-ID and nothing else", async () => {

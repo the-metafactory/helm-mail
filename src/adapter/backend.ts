@@ -70,6 +70,9 @@ const evidence = (connectionId: string, message: Message, at: string) => ({
   observedAt: at,
 });
 
+const listingDigest = (health: string, messages: readonly unknown[]): string =>
+  createHash("sha256").update(JSON.stringify([health, messages])).digest("hex").slice(0, 32);
+
 function messagePage(host: DeskAdapterHost) {
   return async (request: QueryFetchRequest) => {
     const connectionId = connectionOf(request);
@@ -96,7 +99,9 @@ function messagePage(host: DeskAdapterHost) {
       })),
       observedAt,
       ordering: "provider",
-      snapshot: { kind: "live" as const },
+      // The ID digests the whole matching listing, so a listing that changes between pages fails the next page
+      // instead of silently omitting mail.
+      snapshot: { kind: "stable" as const, id: listingDigest(health, matching) },
       ...(next < matching.length ? { cursor: String(next) } : {}),
     };
   };
