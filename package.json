@@ -7,9 +7,14 @@
   "license": "MIT",
   "scripts": {
     "test": "bun test",
-    "conformance": "bun run src/conformance-cli.ts"
+    "conformance": "bun run src/conformance-cli.ts",
+    "build:adapter": "bun scripts/build-adapter.ts",
+    "check:adapter": "bun scripts/build-adapter.ts --check",
+    "probe:read": "bun scripts/probe-read.ts",
+    "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {
+    "@the-metafactory/cortex": "github:the-metafactory/cortex#v6.27.0",
     "@types/bun": "latest"
   }
 }
