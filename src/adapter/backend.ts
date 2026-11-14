@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   DeskAdapterDefinition,
   DeskAdapterHost,
@@ -38,10 +39,11 @@ function toMessage(connectionId: string, account: string, mail: DeskListedMail):
   };
 }
 
-function messagesOf(connectionId: string, listing: DeskMailListing): Message[] {
+function messagesOf(connectionId: string, listing: DeskMailListing, max = Infinity): Message[] {
   const seen = new Set<string>();
   const messages: Message[] = [];
   for (const mail of listing.mail) {
+    if (messages.length >= max) break;
     const message = toMessage(connectionId, listing.account, mail);
     if (!message || seen.has(message.messageId)) continue;
     seen.add(message.messageId);
@@ -50,10 +52,10 @@ function messagesOf(connectionId: string, listing: DeskMailListing): Message[] {
   return messages;
 }
 
-async function listedMessages(host: DeskAdapterHost, connectionId: string): Promise<{ listing: DeskMailListing; messages: Message[] }> {
+async function listedMail(host: DeskAdapterHost, connectionId: string): Promise<DeskMailListing> {
   const listing = await host.mail.listed({ adapterId: ADAPTER_ID, connectionId });
   if (!listing) throw new Error("mail.not_bound");
-  return { listing, messages: messagesOf(connectionId, listing) };
+  return listing;
 }
 
 function connectionOf(request: QueryFetchRequest): string {
@@ -63,7 +65,7 @@ function connectionOf(request: QueryFetchRequest): string {
 }
 
 const evidence = (connectionId: string, message: Message, at: string) => ({
-  evidenceId: `mail:${connectionId}:${message.messageId}`,
+  evidenceId: `mail:${connectionId}:${message.messageId}:${createHash("sha256").update(JSON.stringify(message)).digest("hex").slice(0, 16)}`,
   revision: `${message.receivedAt}|${message.subject.length}|${message.firstParagraph.length}`,
   observedAt: at,
 });
@@ -71,7 +73,8 @@ const evidence = (connectionId: string, message: Message, at: string) => ({
 function messagePage(host: DeskAdapterHost) {
   return async (request: QueryFetchRequest) => {
     const connectionId = connectionOf(request);
-    const { listing, messages } = await listedMessages(host, connectionId);
+    const listing = await listedMail(host, connectionId);
+    const messages = messagesOf(connectionId, listing);
     const wanted = (request.input as { messageId?: unknown } | null)?.messageId;
     const matching = typeof wanted === "string" ? messages.filter(message => message.messageId === wanted) : messages;
     const offset = request.cursor === undefined ? 0 : Number(request.cursor);
@@ -93,7 +96,7 @@ function messagePage(host: DeskAdapterHost) {
       })),
       observedAt,
       ordering: "provider",
-      snapshot: { kind: "stable", id: `${health}:${matching.length}:${matching[0]?.messageId ?? ""}` },
+      snapshot: { kind: "live" as const },
       ...(next < matching.length ? { cursor: String(next) } : {}),
     };
   };
@@ -117,12 +120,15 @@ function watch(host: DeskAdapterHost) {
     modes: ["poll"] as const,
     async fetch(request: ObservationRequest) {
       const connectionId = request.source.connectionId;
-      const { listing, messages } = await listedMessages(host, connectionId);
+      const listing = await listedMail(host, connectionId);
       const at = now();
       if (listing.health.state === "stale") {
         return { version: "1.0.0", payload: { items: [] }, events: [], gap: false, coverage: "none" };
       }
-      const page = messages.slice(0, Math.min(request.limit, PAGE_LIMIT));
+      const size = Math.min(request.limit, PAGE_LIMIT);
+      const page = messagesOf(connectionId, listing, size + 1);
+      const more = page.length > size;
+      page.length = Math.min(page.length, size);
       return {
         version: "1.0.0",
         payload: { items: page },
@@ -139,7 +145,7 @@ function watch(host: DeskAdapterHost) {
             evidenceId: item.evidenceId,
           };
         }),
-        gap: messages.length > page.length,
+        gap: more,
         coverage: "objects",
       };
     },

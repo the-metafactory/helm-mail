@@ -6,7 +6,7 @@
   "domainContractVersion": "1.0.0",
   "backend": {
     "entry": "backend.mjs",
-    "sha256": "0eb3d3025d08afb365630174a38a6f9909f40efc7d7d983c5f86729acb3b5439"
+    "sha256": "d1f4c2f6f830281d17e2f3afd5dedb19576f7b6f5cedd5117692495a81d05a2c"
   },
   "declaration": {
     "adapterId": "mail",
@@ -323,7 +323,7 @@
           "/health"
         ],
         "ordering": "provider",
-        "stableSnapshot": true,
+        "stableSnapshot": false,
         "limits": {
           "items": 20
         }

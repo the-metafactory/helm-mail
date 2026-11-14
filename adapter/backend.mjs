@@ -1,3 +1,6 @@
+// src/adapter/backend.ts
+import { createHash } from "node:crypto";
+
 // src/adapter/manifest.ts
 var ADAPTER_ID = "mail";
 var CAPABILITIES = {
@@ -68,7 +71,7 @@ function capability(capabilityId, label, kind, objectTypes, input, output) {
   return { capabilityId, label, kind, objectTypes, inputSchemaRef: ref(input), outputSchemaRef: ref(output), errorSchemaRef: ref(SCHEMAS.error) };
 }
 var base = { version: "1.0.0", adapterId: ADAPTER_ID };
-var messageQuery = { objectsPointer: "/items", aggregatePointers: ["/health"], ordering: "provider", stableSnapshot: true, limits: { items: PAGE_LIMIT } };
+var messageQuery = { objectsPointer: "/items", aggregatePointers: ["/health"], ordering: "provider", stableSnapshot: false, limits: { items: PAGE_LIMIT } };
 var readBindings = [
   { ...base, capabilityId: CAPABILITIES.mailboxes, mode: "destinations", objectType: "mailbox", inputSchemaRef: ref(SCHEMAS.empty), outputSchemaRef: ref(SCHEMAS.mailboxes), display: { title: "/label" } },
   { ...base, capabilityId: CAPABILITIES.listed, mode: "query", objectType: "message", inputSchemaRef: ref(SCHEMAS.queryInput), outputSchemaRef: ref(SCHEMAS.messages), destinationType: "mailbox", display: { title: "/subject" }, query: messageQuery },
@@ -105,10 +108,12 @@ function toMessage(connectionId, account, mail) {
     firstParagraph: (mail.firstParagraph ?? "").slice(0, FIRST_PARAGRAPH_LIMIT)
   };
 }
-function messagesOf(connectionId, listing) {
+function messagesOf(connectionId, listing, max = Infinity) {
   const seen = new Set;
   const messages = [];
   for (const mail of listing.mail) {
+    if (messages.length >= max)
+      break;
     const message = toMessage(connectionId, listing.account, mail);
     if (!message || seen.has(message.messageId))
       continue;
@@ -117,11 +122,11 @@ function messagesOf(connectionId, listing) {
   }
   return messages;
 }
-async function listedMessages(host, connectionId) {
+async function listedMail(host, connectionId) {
   const listing = await host.mail.listed({ adapterId: ADAPTER_ID, connectionId });
   if (!listing)
     throw new Error("mail.not_bound");
-  return { listing, messages: messagesOf(connectionId, listing) };
+  return listing;
 }
 function connectionOf(request) {
   const destination = request.destinations[0];
@@ -130,14 +135,15 @@ function connectionOf(request) {
   return destination.connectionId;
 }
 var evidence = (connectionId, message, at) => ({
-  evidenceId: `mail:${connectionId}:${message.messageId}`,
+  evidenceId: `mail:${connectionId}:${message.messageId}:${createHash("sha256").update(JSON.stringify(message)).digest("hex").slice(0, 16)}`,
   revision: `${message.receivedAt}|${message.subject.length}|${message.firstParagraph.length}`,
   observedAt: at
 });
 function messagePage(host) {
   return async (request) => {
     const connectionId = connectionOf(request);
-    const { listing, messages } = await listedMessages(host, connectionId);
+    const listing = await listedMail(host, connectionId);
+    const messages = messagesOf(connectionId, listing);
     const wanted = request.input?.messageId;
     const matching = typeof wanted === "string" ? messages.filter((message) => message.messageId === wanted) : messages;
     const offset = request.cursor === undefined ? 0 : Number(request.cursor);
@@ -159,7 +165,7 @@ function messagePage(host) {
       })),
       observedAt,
       ordering: "provider",
-      snapshot: { kind: "stable", id: `${health}:${matching.length}:${matching[0]?.messageId ?? ""}` },
+      snapshot: { kind: "live" },
       ...next < matching.length ? { cursor: String(next) } : {}
     };
   };
@@ -181,12 +187,15 @@ function watch(host) {
     modes: ["poll"],
     async fetch(request) {
       const connectionId = request.source.connectionId;
-      const { listing, messages } = await listedMessages(host, connectionId);
+      const listing = await listedMail(host, connectionId);
       const at = now();
       if (listing.health.state === "stale") {
         return { version: "1.0.0", payload: { items: [] }, events: [], gap: false, coverage: "none" };
       }
-      const page = messages.slice(0, Math.min(request.limit, PAGE_LIMIT));
+      const size = Math.min(request.limit, PAGE_LIMIT);
+      const page = messagesOf(connectionId, listing, size + 1);
+      const more = page.length > size;
+      page.length = Math.min(page.length, size);
       return {
         version: "1.0.0",
         payload: { items: page },
@@ -203,7 +212,7 @@ function watch(host) {
             evidenceId: item.evidenceId
           };
         }),
-        gap: messages.length > page.length,
+        gap: more,
         coverage: "objects"
       };
     }

@@ -82,7 +82,7 @@ function capability(capabilityId: string, label: string, kind: string, objectTyp
 }
 
 const base = { version: "1.0.0", adapterId: ADAPTER_ID };
-const messageQuery = { objectsPointer: "/items", aggregatePointers: ["/health"], ordering: "provider", stableSnapshot: true, limits: { items: PAGE_LIMIT } };
+const messageQuery = { objectsPointer: "/items", aggregatePointers: ["/health"], ordering: "provider", stableSnapshot: false, limits: { items: PAGE_LIMIT } };
 
 export const readBindings = [
   { ...base, capabilityId: CAPABILITIES.mailboxes, mode: "destinations", objectType: "mailbox", inputSchemaRef: ref(SCHEMAS.empty), outputSchemaRef: ref(SCHEMAS.mailboxes), display: { title: "/label" } },
