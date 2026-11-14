@@ -12,3 +12,6 @@ jobs:
       - run: bun install
       - run: bun test
       - run: bun run conformance
+      - run: bun run typecheck
+      - run: bun run check:adapter
+      - run: bun run probe:read
