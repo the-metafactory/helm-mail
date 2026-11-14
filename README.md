@@ -16,6 +16,15 @@ bun run conformance
 
 The default conformance run uses only the fake connection and contacts no mailbox.
 
+## Desk mail adapter
+
+`adapter/` holds an inactive Desk adapter package, `mail`, that answers bounded queries over mail the host already listed and keeps an observation of it per connection. It is read-only: no body, no search, no action, no Day item. See [the Mail read adapter](docs/mail-adapter.md).
+
+```sh
+bun run build:adapter   # regenerate adapter/ from src/adapter
+bun run probe:read      # conformance on synthetic accounts: stale, cloud, no body
+```
+
 | Step | Tracked in |
 | --- | --- |
 | Mail connection interface 1.0 | [cortex#3367](https://github.com/the-metafactory/cortex/issues/3367) |
