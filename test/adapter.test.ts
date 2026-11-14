@@ -8,7 +8,7 @@ const mailbox = (connectionId: string) => ({ adapterId: "mail", connectionId, ob
 const request = (connectionId: string, input: Record<string, unknown> = {}, extra: Partial<QueryFetchRequest> = {}): QueryFetchRequest => ({
   readVersion: "1.0.0", queryId: "q", capabilityId: CAPABILITIES.listed, input: input as QueryFetchRequest["input"], destinations: [mailbox(connectionId)], limit: 20, ...extra,
 });
-interface Page { payload: { items: { messageId: string; account: string; from: unknown; subject: string; receivedAt: string; firstParagraph: string }[]; health: string }; annotations: { ref: { adapterId: string; connectionId: string; objectType: string; canonicalId: string }; evidence: { observedAt: string } }[]; cursor?: string; snapshot: { kind: string; id?: string } }
+interface Page { payload: { items: { messageId: string; account: string; from: unknown; subject: string; receivedAt: string; firstParagraph: string }[]; health: string }; annotations: { ref: { adapterId: string; connectionId: string; objectType: string; canonicalId: string }; evidence: { observedAt: string; revision: string } }[]; cursor?: string; snapshot: { kind: string; id?: string } }
 
 const query = async (host: DeskAdapterHost, req: QueryFetchRequest): Promise<Page> => {
   const handler = createDeskAdapter(host).bindings.handlers[CAPABILITIES.listed];
@@ -41,6 +41,18 @@ describe("the mail adapter's bounded query", () => {
     expect(first.snapshot.kind).toBe("stable");
     expect(again.snapshot.id).toBe(first.snapshot.id);
     expect(reordered.snapshot.id).not.toBe(first.snapshot.id);
+  });
+
+  test("refuses a cursor it did not issue", async () => {
+    const { host } = fakeBridge({ one: ACCOUNT_ONE });
+
+    for (const cursor of ["x", "-1", "1.5"]) await expect(query(host, request("one", {}, { cursor }))).rejects.toThrow("mail.bad_cursor");
+  });
+
+  test("revises a message's evidence when its text changes at the same length", async () => {
+    const page = async (subject: string) => (await query(fakeBridge({ one: ACCOUNT_ONE }, { mail: [item("<a@example.test>", ACCOUNT_ONE, subject)] }).host, request("one"))).annotations[0]!.evidence;
+
+    expect((await page("Subject A")).revision).not.toBe((await page("Subject B")).revision);
   });
 
   test("reads one listed mail by Message-ID and nothing else", async () => {

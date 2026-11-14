@@ -134,11 +134,18 @@ function connectionOf(request) {
     throw new Error("mail.one_connection");
   return destination.connectionId;
 }
-var evidence = (connectionId, message, at) => ({
-  evidenceId: `mail:${connectionId}:${message.messageId}:${createHash("sha256").update(JSON.stringify(message)).digest("hex").slice(0, 16)}`,
-  revision: `${message.receivedAt}|${message.subject.length}|${message.firstParagraph.length}`,
-  observedAt: at
-});
+var contentDigest = (message) => createHash("sha256").update(JSON.stringify(message)).digest("hex").slice(0, 16);
+var evidence = (connectionId, message, at) => {
+  const digest = contentDigest(message);
+  return { evidenceId: `mail:${connectionId}:${message.messageId}:${digest}`, revision: digest, observedAt: at };
+};
+function offsetOf(cursor) {
+  if (cursor === undefined)
+    return 0;
+  if (!/^\d+$/.test(cursor))
+    throw new Error("mail.bad_cursor");
+  return Number(cursor);
+}
 var listingDigest = (health, messages) => createHash("sha256").update(JSON.stringify([health, messages])).digest("hex").slice(0, 32);
 function messagePage(host) {
   return async (request) => {
@@ -147,7 +154,7 @@ function messagePage(host) {
     const messages = messagesOf(connectionId, listing);
     const wanted = request.input?.messageId;
     const matching = typeof wanted === "string" ? messages.filter((message) => message.messageId === wanted) : messages;
-    const offset = request.cursor === undefined ? 0 : Number(request.cursor);
+    const offset = offsetOf(request.cursor);
     const page = matching.slice(offset, offset + Math.min(request.limit, PAGE_LIMIT));
     const next = offset + page.length;
     const health = listing.health.state;
