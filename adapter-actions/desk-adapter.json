@@ -6,7 +6,7 @@
   "domainContractVersion": "1.0.0",
   "backend": {
     "entry": "backend.mjs",
-    "sha256": "11b9b2f4ecf047b2084d42b33b085947c5e5cc0ebd2f848110fa4eff37114db8"
+    "sha256": "9b270a0333e98827101a65604bb156b84c601b4ee0bb124e20ba2073e0c2cd27"
   },
   "declaration": {
     "adapterId": "mail",
@@ -591,6 +591,591 @@
             }
           }
         }
+      },
+      {
+        "schemaId": "mail.mail.judgement.output",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "message",
+            "undo"
+          ],
+          "properties": {
+            "ref": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "undo": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mail.judgement.error",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^mail\\..+$"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "code",
+                  "message"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.judgement.unimportant.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "message"
+          ],
+          "properties": {
+            "action": {
+              "const": "unimportant"
+            },
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.judgement.block-domain.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "message"
+          ],
+          "properties": {
+            "action": {
+              "const": "block-domain"
+            },
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.judgement.correct.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "message",
+            "said"
+          ],
+          "properties": {
+            "action": {
+              "const": "correct"
+            },
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "said": {
+              "type": "string",
+              "enum": [
+                "not-bulk",
+                "matters",
+                "archive",
+                "junk",
+                "trash",
+                "reply",
+                "plan",
+                "todo",
+                "keep"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.judgement.not-phishing.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "message"
+          ],
+          "properties": {
+            "action": {
+              "const": "not-phishing"
+            },
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.judgement.snooze.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "message",
+            "until"
+          ],
+          "properties": {
+            "action": {
+              "const": "snooze"
+            },
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "until": {
+              "oneOf": [
+                {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "later",
+                        "tomorrow",
+                        "next-week"
+                      ]
+                    }
+                  }
+                },
+                {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "date"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "date"
+                    },
+                    "date": {
+                      "type": "string",
+                      "maxLength": 10
+                    }
+                  }
+                },
+                {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "event"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "meeting"
+                    },
+                    "event": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    }
+                  }
+                },
+                {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "kind",
+                    "address"
+                  ],
+                  "properties": {
+                    "kind": {
+                      "const": "person"
+                    },
+                    "address": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 320
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.judgement.snooze-cancel.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "message"
+          ],
+          "properties": {
+            "action": {
+              "const": "snooze-cancel"
+            },
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.judgement.waiting.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "message",
+            "op"
+          ],
+          "properties": {
+            "action": {
+              "const": "waiting"
+            },
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "op": {
+              "type": "string",
+              "enum": [
+                "snooze",
+                "done",
+                "no-answer",
+                "expect"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.judgement.undo.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "action",
+            "message",
+            "operationId"
+          ],
+          "properties": {
+            "action": {
+              "const": "undo"
+            },
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "operationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000
+            }
+          }
+        }
       }
     ],
     "objectTypes": [
@@ -760,6 +1345,166 @@
         },
         "errorSchemaRef": {
           "schemaId": "mail.mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.judgement.unimportant",
+        "label": "Mail: unimportant",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.judgement.unimportant.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.judgement.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.judgement.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.judgement.block-domain",
+        "label": "Mail: block-domain",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.judgement.block-domain.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.judgement.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.judgement.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.judgement.correct",
+        "label": "Mail: correct",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.judgement.correct.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.judgement.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.judgement.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.judgement.not-phishing",
+        "label": "Mail: not-phishing",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.judgement.not-phishing.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.judgement.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.judgement.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.judgement.snooze",
+        "label": "Mail: snooze",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.judgement.snooze.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.judgement.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.judgement.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.judgement.snooze-cancel",
+        "label": "Mail: snooze-cancel",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.judgement.snooze-cancel.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.judgement.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.judgement.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.judgement.waiting",
+        "label": "Mail: waiting",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.judgement.waiting.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.judgement.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.judgement.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.judgement.undo",
+        "label": "Mail: undo",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.judgement.undo.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.judgement.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.judgement.error",
           "version": "1.0.0"
         }
       }
