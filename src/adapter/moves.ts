@@ -1,16 +1,11 @@
+import { composeDeclaration } from "./compose-declaration";
 import { mailMoveDeclaration, type AdapterDeclaration, type ApprovedSnapshot, type DeskAdapterConnection, type DeskAdapterHost, type DispatchRequest, type Json, type ObjectReference, type OwnerResult, type OperationLookup } from "@the-metafactory/cortex/desk-sdk";
 import { callMove, callMoveLookup, INTERFACE_VERSION, moveSupport, type MoveConnection, type MoveContext, type MoveRequest, type MoveResult, type RestoreRequest } from "../interface";
 
 export const MOVE_CAPABILITIES = ["mail.move", "mail.trash", "mail.restore"] as const;
 export function withMailMoves(base: AdapterDeclaration): AdapterDeclaration {
   if (base.adapterId !== "mail") throw new Error("Mail move bindings require the mail adapter.");
-  const moves = mailMoveDeclaration(base.adapterId);
-  return {
-    ...base,
-    schemas: [...base.schemas, ...moves.schemas.filter(item => !base.schemas.some(old => old.schemaId === item.schemaId && old.version === item.version))],
-    objectTypes: [...base.objectTypes, ...moves.objectTypes.filter(item => !base.objectTypes.some(old => old.objectType === item.objectType))],
-    capabilities: [...base.capabilities, ...moves.capabilities],
-  };
+  return composeDeclaration(base, mailMoveDeclaration(base.adapterId));
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
