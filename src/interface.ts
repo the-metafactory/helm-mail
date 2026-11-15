@@ -1,6 +1,6 @@
 export const INTERFACE_VERSION = 1;
 
-export const VERBS = ["draft", "lookup"] as const;
+export const VERBS = ["draft", "lookup", "move", "restore", "lookup-move"] as const;
 
 export interface DraftRequest {
   version: number;
@@ -27,6 +27,93 @@ export interface MailConnection {
   readonly version?: number;
   draft(request: DraftRequest): Promise<unknown>;
   lookup(requestId: string): Promise<unknown>;
+  move?(request: MoveRequest): Promise<unknown>;
+  restore?(request: RestoreRequest): Promise<unknown>;
+  lookupMove?(requestId: string): Promise<unknown>;
+}
+
+export interface MoveContext {
+  operationId: string;
+  attemptId: string;
+  snapshotDigest: string;
+}
+
+interface MoveBase {
+  version: number;
+  requestId: string;
+  account: string;
+  messageId: string;
+  context: MoveContext;
+}
+
+export interface MoveRequest extends MoveBase {
+  action: "move" | "trash";
+  target: "archive" | "junk" | "trash";
+}
+
+export interface RestoreRequest extends MoveBase {
+  action: "restore";
+  from: string;
+}
+
+export type MoveResult =
+  | { status: "moved" | "restored" | "exists"; id: string; account: string; folder: string; previousFolder: string }
+  | { status: "missing" | "denied" | "unavailable" }
+  | { status: "conflict"; folder: string };
+
+export type MoveLookupResult =
+  | { status: "found"; request: MoveRequest | RestoreRequest; result: MoveResult }
+  | { status: "not_found" | "unavailable" };
+
+export type MoveOutcome =
+  | { kind: "result"; value: MoveResult }
+  | { kind: "unknown" | "unsupported"; reason: string };
+
+export function moveSupport(conn: MailConnection): string | undefined {
+  return checkVersion(conn) ?? (typeof conn.move !== "function" || typeof conn.restore !== "function" || typeof conn.lookupMove !== "function" ? "connection does not offer move, restore and historical lookup" : undefined);
+}
+
+export function parseMoveResult(raw: unknown): MoveResult | undefined {
+  if (!isObject(raw)) return undefined;
+  if (raw.status === "missing" || raw.status === "denied" || raw.status === "unavailable") return { status: raw.status };
+  if (raw.status === "conflict" && isText(raw.folder)) return { status: "conflict", folder: raw.folder };
+  if ((raw.status === "moved" || raw.status === "restored" || raw.status === "exists") && isText(raw.id) && isText(raw.account) && isText(raw.folder) && isText(raw.previousFolder)) {
+    return { status: raw.status, id: raw.id, account: raw.account, folder: raw.folder, previousFolder: raw.previousFolder };
+  }
+  return undefined;
+}
+
+export function parseMoveLookup(raw: unknown): MoveLookupResult | undefined {
+  if (!isObject(raw)) return undefined;
+  if (raw.status === "not_found" || raw.status === "unavailable") return { status: raw.status };
+  const r = raw.request;
+  const value = parseMoveResult(raw.result);
+  if (raw.status !== "found" || !isObject(r) || !value || r.version !== INTERFACE_VERSION || !isText(r.requestId) || !isText(r.account) || !isText(r.messageId) || !isObject(r.context)) return undefined;
+  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== r.account || value.id !== r.messageId)) return undefined;
+  const c = r.context;
+  if (!isText(c.operationId) || !isText(c.attemptId) || typeof c.snapshotDigest !== "string" || !/^[a-f0-9]{64}$/.test(c.snapshotDigest)) return undefined;
+  const base = { version: r.version, requestId: r.requestId, account: r.account, messageId: r.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } };
+  if (r.action === "restore" && isText(r.from)) return { status: "found", request: { ...base, action: "restore", from: r.from }, result: value };
+  if ((r.action === "move" && (r.target === "archive" || r.target === "junk")) || r.action === "trash" && r.target === "trash") return { status: "found", request: { ...base, action: r.action, target: r.target }, result: value };
+  return undefined;
+}
+
+export async function callMove(conn: MailConnection, request: MoveRequest | RestoreRequest, timeoutMs = 5000): Promise<MoveOutcome> {
+  const bad = moveSupport(conn);
+  if (bad) return { kind: "unsupported", reason: bad };
+  const called = await guarded(() => request.action === "restore" ? conn.restore!(request) : conn.move!(request), timeoutMs);
+  if (!called.ok) return { kind: "unknown", reason: called.reason };
+  const value = parseMoveResult(called.value);
+  if (!value) return { kind: "unknown", reason: "unstructured move output" };
+  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== request.account || value.id !== request.messageId)) return { kind: "unknown", reason: "move result belongs to another account or message" };
+  if ((request.action === "restore" && value.status === "moved") || (request.action !== "restore" && value.status === "restored")) return { kind: "unknown", reason: "move result belongs to another action" };
+  return { kind: "result", value };
+}
+
+export async function callMoveLookup(conn: MailConnection, requestId: string, timeoutMs = 5000): Promise<MoveLookupResult | undefined> {
+  if (moveSupport(conn)) return undefined;
+  const called = await guarded(() => conn.lookupMove!(requestId), timeoutMs);
+  return called.ok ? parseMoveLookup(called.value) : undefined;
 }
 
 export type DraftOutcome =
