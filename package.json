@@ -14,7 +14,7 @@
     "typecheck": "bunx tsc --noEmit"
   },
   "devDependencies": {
-    "@the-metafactory/cortex": "https://codeload.github.com/the-metafactory/cortex/tar.gz/refs/tags/v6.31.0",
+    "@the-metafactory/cortex": "https://codeload.github.com/the-metafactory/cortex/tar.gz/refs/tags/v6.32.0",
     "@types/bun": "latest"
   }
 }
