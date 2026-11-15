@@ -3,7 +3,7 @@ import { createDeskAdapter } from "../src/adapter-actions/backend";
 import { fakeBridge } from "./fixtures/mail-source";
 import { probeUnsubscribe } from "../scripts/probe-unsubscribe";
 
-test("packaged unsubscribe uses real journal, native message suppression and strict historical recovery", async () => {
+test("packaged unsubscribe uses real journal, fake-provider message suppression and strict historical recovery", async () => {
   const result = await probeUnsubscribe();
   expect(result.effects).toBe(1);
   expect(new Set(result.distinctRequestIds).size).toBe(2);

@@ -10,6 +10,11 @@ const MESSAGE = "<unsubscribe@example.test>";
 const HEADERS = { listUnsubscribe: "<https://lists.example.test/remove/token>", listUnsubscribePost: "List-Unsubscribe=One-Click" };
 const mail = (headers: OneClickHeaders | undefined = HEADERS) => fakeMailSource([binding()], null, [{ ...item(MESSAGE, ACCOUNT_ONE, "Invented newsletter"), ...(headers ? { headers } : {}) }]);
 const snapshot: MailActionScenarioOptions["snapshot"] = c => mailUnsubscribeSnapshot({ ...c, input: { message: mailMessageRef(c.adapterId, c.connectionId, MESSAGE) } });
+const bumpedRevision: MailActionScenarioOptions["snapshot"] = c => {
+  const s = snapshot(c);
+  s.provenance.revision += 1;
+  return s;
+};
 const fresh = (account = ACCOUNT_ONE, messages: Record<string, OneClickHeaders> = { [MESSAGE]: HEADERS }) => new FakeUnsubscribeConnection(new FakeOneClickEndpoint(), account, messages);
 const scenario = (provider: ReturnType<NonNullable<MailActionScenarioOptions["execution"]>["connection"]>, extra: Partial<MailActionScenarioOptions> = {}) => runMailActionScenario(ACTION_ADAPTER_DIR, { capabilityId: "mail.unsubscribe", mail: mail(), snapshot, execution: { connection: () => provider }, ...extra });
 function check(report: MailActionScenarioReport, final: string) {
@@ -126,19 +131,11 @@ export async function probeUnsubscribe() {
     check(reports[`lost-${mode}`]!, "uncertain");
     assert.equal(provider.endpoint.effects.length, 1);
   }
-  reports.savedMismatch = await scenario(fake, { snapshot: c => {
-    const s = snapshot(c);
-    s.provenance.revision += 1;
-    return s;
-  }, steps: ["restart", "reconcile", "repeat"] });
+  reports.savedMismatch = await scenario(fake, { snapshot: bumpedRevision, steps: ["restart", "reconcile", "repeat"] });
   check(reports.savedMismatch, "uncertain");
   assert.equal(fake.endpoint.effects.length, 1);
   let lookups = 0;
-  reports.timeoutConflict = await scenario({ ...timed(fake), lookupUnsubscribe: async (id: string) => ++lookups === 1 ? { status: "not_found" } : fake.lookupUnsubscribe(id) }, { snapshot: c => {
-    const s = snapshot(c);
-    s.provenance.revision += 1;
-    return s;
-  }, steps: ["restart", "reconcile", "repeat"] });
+  reports.timeoutConflict = await scenario({ ...timed(fake), lookupUnsubscribe: async (id: string) => ++lookups === 1 ? { status: "not_found" } : fake.lookupUnsubscribe(id) }, { snapshot: bumpedRevision, steps: ["restart", "reconcile", "repeat"] });
   check(reports.timeoutConflict, "uncertain");
   assert.equal(fake.endpoint.effects.length, 1);
   return { reports, effects: recovery.endpoint.effects.length, distinctRequestIds: [saved.request.requestId, second.requestId], transport: "Injected fake endpoint records POST effects; no HTTP/TLS connection.", limit: "Controlled in-process reconstruction; no OS termination, concurrency or retention guarantee." };
