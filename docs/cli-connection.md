@@ -48,6 +48,16 @@ Lookup reads current Drafts state and returns `found`, `not_found` or `unavailab
 `not_found` makes no assertion about whether a draft previously existed or was sent.
 There is no local success ledger or lookup cache.
 
+A version-1 provider may additionally return `request` with a found lookup:
+`{ status: "found", id, account, request: { version: 1, requestId, account,
+messageId, recipient, subject, body } }`. These fields must come from the saved
+native draft's evidence, never from the caller's current approval or a transient
+adapter cache. The inactive reply binding requires matching saved-request evidence
+before it settles a historical lookup. Existing ID/account-only responses remain
+valid interface responses, but cannot settle an uncertain reply action. This
+repository does not claim that an existing deployment's mail CLI supplies the
+optional evidence; adding the inactive package does not activate such a provider.
+
 The connection exposes no send verb. It never invokes a send command. Nonzero
 exits, timeouts and malformed replies become `unknown` through `callDraft` and
 `callLookup`; they do not imply that a draft was not created. The default connection

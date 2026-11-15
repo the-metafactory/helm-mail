@@ -11,10 +11,13 @@
     "build:adapter": "bun scripts/build-adapter.ts",
     "check:adapter": "bun scripts/build-adapter.ts --check",
     "probe:read": "bun scripts/probe-read.ts",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "build:actions": "bun scripts/build-actions.ts",
+    "check:actions": "bun scripts/build-actions.ts --check",
+    "probe:reply": "bun scripts/probe-reply.ts"
   },
   "devDependencies": {
-    "@the-metafactory/cortex": "https://codeload.github.com/the-metafactory/cortex/tar.gz/refs/tags/v6.30.0",
+    "@the-metafactory/cortex": "https://codeload.github.com/the-metafactory/cortex/tar.gz/refs/tags/v6.32.0",
     "@types/bun": "latest"
   }
 }

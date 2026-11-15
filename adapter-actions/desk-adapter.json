@@ -1,0 +1,680 @@
+{
+  "format": "desk-adapter-package/1",
+  "packageId": "the-metafactory.helm-mail",
+  "packageVersion": "0.1.0",
+  "deskSdkRange": "^1.13.0",
+  "domainContractVersion": "1.0.0",
+  "backend": {
+    "entry": "backend.mjs",
+    "sha256": "96357491dcfe5ef9c3b1c2fee594986717d5a1bb13127f1108a2174c4d424b20"
+  },
+  "declaration": {
+    "adapterId": "mail",
+    "label": "Mail",
+    "contractRange": "^1.0.0",
+    "schemas": [
+      {
+        "schemaId": "mail.empty",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {}
+        }
+      },
+      {
+        "schemaId": "mail.error",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mailbox",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "label"
+          ],
+          "properties": {
+            "label": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mailbox.list.output",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "items"
+          ],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:desk-schema:mail.mailbox:1.0.0"
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.message",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "messageId",
+            "account",
+            "from",
+            "subject",
+            "receivedAt",
+            "firstParagraph"
+          ],
+          "properties": {
+            "messageId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "account": {
+              "type": "string",
+              "minLength": 1
+            },
+            "from": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "address"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "subject": {
+              "type": "string"
+            },
+            "receivedAt": {
+              "type": "string",
+              "minLength": 1
+            },
+            "firstParagraph": {
+              "type": "string",
+              "maxLength": 1000
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.message.query.output",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "items",
+            "health"
+          ],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:desk-schema:mail.message:1.0.0"
+              }
+            },
+            "health": {
+              "type": "string",
+              "enum": [
+                "fresh",
+                "stale"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.message.watch.output",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "items"
+          ],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:desk-schema:mail.message:1.0.0"
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.message.query.input",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "messageId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mail.error",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "message"
+          ],
+          "properties": {
+            "code": {
+              "type": "string",
+              "pattern": "^mail\\..+$"
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "issues": {
+              "type": "array",
+              "items": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "path",
+                  "code",
+                  "message"
+                ],
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mail.message",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapterId",
+            "connectionId",
+            "objectType",
+            "canonicalId"
+          ],
+          "properties": {
+            "adapterId": {
+              "type": "string",
+              "const": "mail"
+            },
+            "connectionId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "objectType": {
+              "type": "string",
+              "const": "message"
+            },
+            "canonicalId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mail.account",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapterId",
+            "connectionId",
+            "objectType",
+            "canonicalId"
+          ],
+          "properties": {
+            "adapterId": {
+              "type": "string",
+              "const": "mail"
+            },
+            "connectionId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "objectType": {
+              "type": "string",
+              "const": "account"
+            },
+            "canonicalId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mail.move.output",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "folder"
+          ],
+          "properties": {
+            "ref": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "folder": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.reply-draft.create.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "message",
+            "body"
+          ],
+          "properties": {
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 20000
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.reply-draft.create.output",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref"
+          ],
+          "properties": {
+            "ref": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "draft"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "objectTypes": [
+      {
+        "objectType": "mailbox",
+        "label": "Mailbox",
+        "schemaRef": {
+          "schemaId": "mail.mailbox",
+          "version": "1.0.0"
+        },
+        "relationships": []
+      },
+      {
+        "objectType": "message",
+        "label": "Message",
+        "schemaRef": {
+          "schemaId": "mail.message",
+          "version": "1.0.0"
+        },
+        "relationships": []
+      },
+      {
+        "objectType": "account",
+        "label": "Account",
+        "schemaRef": {
+          "schemaId": "mail.mail.account",
+          "version": "1.0.0"
+        },
+        "relationships": []
+      }
+    ],
+    "capabilities": [
+      {
+        "capabilityId": "mail.mailbox.list",
+        "label": "List mailboxes",
+        "kind": "query",
+        "objectTypes": [
+          "mailbox"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.empty",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mailbox.list.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.message.query",
+        "label": "Listed mail",
+        "kind": "query",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.message.query.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.message.query.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.message.watch",
+        "label": "Watch listed mail",
+        "kind": "observation",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.empty",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.message.watch.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.reply-draft.create",
+        "label": "Save reply draft",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.reply-draft.create.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.reply-draft.create.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.error",
+          "version": "1.0.0"
+        }
+      }
+    ]
+  },
+  "draftingBindings": [],
+  "readBindings": [
+    {
+      "version": "1.0.0",
+      "adapterId": "mail",
+      "capabilityId": "mail.mailbox.list",
+      "mode": "destinations",
+      "objectType": "mailbox",
+      "inputSchemaRef": {
+        "schemaId": "mail.empty",
+        "version": "1.0.0"
+      },
+      "outputSchemaRef": {
+        "schemaId": "mail.mailbox.list.output",
+        "version": "1.0.0"
+      },
+      "display": {
+        "title": "/label"
+      }
+    },
+    {
+      "version": "1.0.0",
+      "adapterId": "mail",
+      "capabilityId": "mail.message.query",
+      "mode": "query",
+      "objectType": "message",
+      "inputSchemaRef": {
+        "schemaId": "mail.message.query.input",
+        "version": "1.0.0"
+      },
+      "outputSchemaRef": {
+        "schemaId": "mail.message.query.output",
+        "version": "1.0.0"
+      },
+      "destinationType": "mailbox",
+      "display": {
+        "title": "/subject"
+      },
+      "query": {
+        "objectsPointer": "/items",
+        "aggregatePointers": [
+          "/health"
+        ],
+        "ordering": "provider",
+        "stableSnapshot": true,
+        "limits": {
+          "items": 20
+        }
+      }
+    },
+    {
+      "version": "1.0.0",
+      "adapterId": "mail",
+      "capabilityId": "mail.message.watch",
+      "mode": "poll",
+      "objectType": "message",
+      "inputSchemaRef": {
+        "schemaId": "mail.empty",
+        "version": "1.0.0"
+      },
+      "outputSchemaRef": {
+        "schemaId": "mail.message.watch.output",
+        "version": "1.0.0"
+      },
+      "destinationType": "mailbox",
+      "display": {
+        "title": "/subject"
+      },
+      "observation": {
+        "modes": [
+          "poll"
+        ],
+        "objectsPointer": "/items",
+        "resumable": false
+      }
+    }
+  ],
+  "setup": {
+    "version": "1.0.0",
+    "schemas": [
+      {
+        "schemaId": "mail.setup.configuration",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {}
+        }
+      },
+      {
+        "schemaId": "mail.setup.account",
+        "version": "1.0.0",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {}
+        }
+      }
+    ],
+    "configurationSchemaRef": {
+      "schemaId": "mail.setup.configuration",
+      "version": "1.0.0"
+    },
+    "accountScopeSchemaRef": {
+      "schemaId": "mail.setup.account",
+      "version": "1.0.0"
+    },
+    "authMethods": [
+      {
+        "kind": "local"
+      }
+    ]
+  }
+}

@@ -19,7 +19,7 @@ export class FakeConnection implements MailConnection {
   readonly version?: number;
   fault: Fault;
   private readonly account: string;
-  private readonly drafts = new Map<string, { id: string; key: string; account: string }>();
+  private readonly drafts = new Map<string, { id: string; key: string; account: string; request: DraftRequest }>();
   private counter = 0;
 
   constructor(options: FakeOptions = {}) {
@@ -45,7 +45,7 @@ export class FakeConnection implements MailConnection {
       };
     }
     const id = `draft-${++this.counter}`;
-    this.drafts.set(request.requestId, { id, key, account: request.account || this.account });
+    this.drafts.set(request.requestId, { id, key, account: request.account || this.account, request: { ...request } });
     return { status: "created", id, account: request.account || this.account };
   }
 
@@ -55,7 +55,7 @@ export class FakeConnection implements MailConnection {
     if (early !== undefined) return early;
     const found = this.drafts.get(requestId);
     return found
-      ? { status: "found", id: found.id, account: found.account }
+      ? { status: "found", id: found.id, account: found.account, request: { ...found.request } }
       : { status: "not_found" };
   }
 

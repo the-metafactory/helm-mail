@@ -19,7 +19,7 @@ export type DraftResult = {
 };
 
 export type LookupResult =
-  | { status: "found"; id: string; account: string }
+  | { status: "found"; id: string; account: string; request?: DraftRequest }
   | { status: "not_found" }
   | { status: "unavailable" };
 
@@ -144,12 +144,20 @@ export function parseDraftResult(raw: unknown): DraftResult | undefined {
   return { status: raw.status, id: raw.id, account: raw.account };
 }
 
+export function parseDraftRequest(raw: unknown): DraftRequest | undefined {
+  if (!isObject(raw) || raw.version !== INTERFACE_VERSION || !isText(raw.requestId) || !/^[A-Za-z0-9._:@-]{1,200}$/.test(raw.requestId)) return undefined;
+  if (!isText(raw.account) || !isText(raw.messageId) || !isText(raw.recipient) || !isText(raw.subject) || typeof raw.body !== "string") return undefined;
+  return { version: INTERFACE_VERSION, requestId: raw.requestId, account: raw.account, messageId: raw.messageId, recipient: raw.recipient, subject: raw.subject, body: raw.body };
+}
+
 export function parseLookupResult(raw: unknown): LookupResult | undefined {
   if (!isObject(raw)) return undefined;
   if (raw.status === "not_found") return { status: "not_found" };
   if (raw.status === "unavailable") return { status: "unavailable" };
   if (raw.status === "found" && isText(raw.id) && isText(raw.account)) {
-    return { status: "found", id: raw.id, account: raw.account };
+    const request = raw.request === undefined ? undefined : parseDraftRequest(raw.request);
+    if (raw.request !== undefined && !request) return undefined;
+    return { status: "found", id: raw.id, account: raw.account, ...(request ? { request } : {}) };
   }
   return undefined;
 }
