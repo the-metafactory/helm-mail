@@ -1,9 +1,9 @@
+import { composeDeclaration } from "./compose-declaration";
 import { mailUnsubscribeDeclaration, mailUnsubscribeSnapshot, type AdapterDeclaration, type DeskAdapterHost, type DeskMailOperationContext, type OwnerResult } from "@the-metafactory/cortex/desk-sdk";
 import { parseUnsubscribeLookup, parseUnsubscribeResult, type UnsubscribeLookup, type UnsubscribeResult } from "../interface";
 
 export function withMailUnsubscribe(base: AdapterDeclaration): AdapterDeclaration {
-  const extra = mailUnsubscribeDeclaration(base.adapterId);
-  return { ...base, schemas: [...base.schemas, ...extra.schemas.filter(item => !base.schemas.some(old => old.schemaId === item.schemaId && old.version === item.version))], objectTypes: [...base.objectTypes, ...extra.objectTypes.filter(item => !base.objectTypes.some(old => old.objectType === item.objectType))], capabilities: [...base.capabilities, ...extra.capabilities] };
+  return composeDeclaration(base, mailUnsubscribeDeclaration(base.adapterId));
 }
 const key = (id: string) => `mail.unsubscribe:${id}`;
 const now = () => new Date().toISOString();

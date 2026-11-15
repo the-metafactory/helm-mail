@@ -397,11 +397,22 @@ function createDeskAdapter(host) {
   };
 }
 
+// src/adapter/compose-declaration.ts
+function composeDeclaration(base, extra) {
+  if (base.adapterId !== extra.adapterId)
+    throw new Error("Declarations must name the same adapter.");
+  return {
+    ...base,
+    schemas: [...base.schemas, ...extra.schemas.filter((item) => !base.schemas.some((old) => old.schemaId === item.schemaId && old.version === item.version))],
+    objectTypes: [...base.objectTypes, ...extra.objectTypes.filter((item) => !base.objectTypes.some((old) => old.objectType === item.objectType))],
+    capabilities: [...base.capabilities, ...extra.capabilities]
+  };
+}
+
 // src/adapter/unsubscribe.ts
 import { mailUnsubscribeDeclaration, mailUnsubscribeSnapshot } from "@the-metafactory/cortex/desk-sdk";
 function withMailUnsubscribe(base) {
-  const extra = mailUnsubscribeDeclaration(base.adapterId);
-  return { ...base, schemas: [...base.schemas, ...extra.schemas.filter((item) => !base.schemas.some((old) => old.schemaId === item.schemaId && old.version === item.version))], objectTypes: [...base.objectTypes, ...extra.objectTypes.filter((item) => !base.objectTypes.some((old) => old.objectType === item.objectType))], capabilities: [...base.capabilities, ...extra.capabilities] };
+  return composeDeclaration(base, mailUnsubscribeDeclaration(base.adapterId));
 }
 var key = (id) => `mail.unsubscribe:${id}`;
 var now2 = () => new Date().toISOString();
@@ -495,13 +506,7 @@ var MOVE_CAPABILITIES = ["mail.move", "mail.trash", "mail.restore"];
 function withMailMoves(base) {
   if (base.adapterId !== "mail")
     throw new Error("Mail move bindings require the mail adapter.");
-  const moves = mailMoveDeclaration(base.adapterId);
-  return {
-    ...base,
-    schemas: [...base.schemas, ...moves.schemas.filter((item) => !base.schemas.some((old) => old.schemaId === item.schemaId && old.version === item.version))],
-    objectTypes: [...base.objectTypes, ...moves.objectTypes.filter((item) => !base.objectTypes.some((old) => old.objectType === item.objectType))],
-    capabilities: [...base.capabilities, ...moves.capabilities]
-  };
+  return composeDeclaration(base, mailMoveDeclaration(base.adapterId));
 }
 var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var sameRef = (left, right) => left.adapterId === right.adapterId && left.connectionId === right.connectionId && left.objectType === right.objectType && left.canonicalId === right.canonicalId;
@@ -625,12 +630,7 @@ function registerMailMoves(host, options = {}) {
 import { mailReplyDraftDeclaration } from "@the-metafactory/cortex/desk-sdk";
 var reply = mailReplyDraftDeclaration(ADAPTER_ID);
 var readDeclaration = declaration;
-var declaration2 = withMailUnsubscribe(withMailMoves({
-  ...readDeclaration,
-  schemas: [...readDeclaration.schemas, ...reply.schemas],
-  objectTypes: [...readDeclaration.objectTypes, ...reply.objectTypes.filter((item) => !readDeclaration.objectTypes.some((read) => read.objectType === item.objectType))],
-  capabilities: [...readDeclaration.capabilities, ...reply.capabilities]
-}));
+var declaration2 = withMailUnsubscribe(withMailMoves(composeDeclaration(readDeclaration, reply)));
 
 // src/adapter-actions/backend.ts
 var CAPABILITY = MAIL_REPLY_DRAFT_CAPABILITY;
