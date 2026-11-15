@@ -27,14 +27,18 @@ function messageOf(snapshot: ApprovedSnapshot, connection: DeskAdapterConnection
   return snapshot.target === undefined || !sameRef(snapshot.target, message) ? undefined : message;
 }
 
+function inScope(snapshot: ApprovedSnapshot, connection: DeskAdapterConnection, account: string): boolean {
+  return snapshot.adapterId === connection.adapterId && snapshot.connectionId === connection.connectionId
+    && snapshot.destinations.length === 1 && sameRef(snapshot.destinations[0]!, { ...connection, objectType: "account", canonicalId: account });
+}
+
 function historyMatches(old: MoveRequest | RestoreRequest, snapshot: ApprovedSnapshot, context: MoveContext, ownerRequestId: string, account: string, connection: DeskAdapterConnection, capabilityId: string): boolean {
   const message = messageOf(snapshot, connection);
   const input = snapshot.input as Record<string, Json>;
   return !!message && old.requestId === key(capabilityId, ownerRequestId) && `mail.${old.action}` === capabilityId
     && old.context.operationId === context.operationId && old.context.attemptId === context.attemptId && old.context.snapshotDigest === context.snapshotDigest
     && old.account === account && old.messageId === message.canonicalId
-    && snapshot.adapterId === connection.adapterId && snapshot.connectionId === connection.connectionId
-    && snapshot.destinations.length === 1 && sameRef(snapshot.destinations[0]!, { ...connection, objectType: "account", canonicalId: account })
+    && inScope(snapshot, connection, account)
     && (old.action === "restore" ? old.from === input.from : old.target === (capabilityId === "mail.trash" ? "trash" : input.target));
 }
 
@@ -74,7 +78,7 @@ export function registerMailMoves(host: DeskAdapterHost, options: { timeoutMs?: 
         const message = messageOf(request.snapshot, connection);
         if (!message) return resultFor(context, request.ownerRequestId, { ...connection, objectType: "message", canonicalId: "unavailable" }, { status: "denied" });
         const listing = await host.mail.listed(connection);
-        if (!listing || listing.health.state !== "fresh" || request.snapshot.adapterId !== connection.adapterId || request.snapshot.connectionId !== connection.connectionId || request.snapshot.destinations.length !== 1 || request.snapshot.destinations.some(ref => ref.adapterId !== connection.adapterId || ref.connectionId !== connection.connectionId || ref.objectType !== "account" || ref.canonicalId !== listing.account)) return resultFor(context, request.ownerRequestId, message, { status: "denied" });
+        if (!listing || listing.health.state !== "fresh" || !inScope(request.snapshot, connection, listing.account)) return resultFor(context, request.ownerRequestId, message, { status: "denied" });
         const requestId = key(capabilityId, request.ownerRequestId);
         const previous = await callMoveLookup(provider, requestId, options.timeoutMs);
         if (!previous || previous.status === "unavailable") return uncertain(context, request.ownerRequestId);

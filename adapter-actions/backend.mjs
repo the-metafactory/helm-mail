@@ -400,10 +400,13 @@ function messageOf(snapshot, connection) {
   const message = { ...connection, objectType: "message", canonicalId: m.canonicalId };
   return snapshot.target === undefined || !sameRef(snapshot.target, message) ? undefined : message;
 }
+function inScope(snapshot, connection, account) {
+  return snapshot.adapterId === connection.adapterId && snapshot.connectionId === connection.connectionId && snapshot.destinations.length === 1 && sameRef(snapshot.destinations[0], { ...connection, objectType: "account", canonicalId: account });
+}
 function historyMatches(old, snapshot, context, ownerRequestId, account, connection, capabilityId) {
   const message = messageOf(snapshot, connection);
   const input = snapshot.input;
-  return !!message && old.requestId === key(capabilityId, ownerRequestId) && `mail.${old.action}` === capabilityId && old.context.operationId === context.operationId && old.context.attemptId === context.attemptId && old.context.snapshotDigest === context.snapshotDigest && old.account === account && old.messageId === message.canonicalId && snapshot.adapterId === connection.adapterId && snapshot.connectionId === connection.connectionId && snapshot.destinations.length === 1 && sameRef(snapshot.destinations[0], { ...connection, objectType: "account", canonicalId: account }) && (old.action === "restore" ? old.from === input.from : old.target === (capabilityId === "mail.trash" ? "trash" : input.target));
+  return !!message && old.requestId === key(capabilityId, ownerRequestId) && `mail.${old.action}` === capabilityId && old.context.operationId === context.operationId && old.context.attemptId === context.attemptId && old.context.snapshotDigest === context.snapshotDigest && old.account === account && old.messageId === message.canonicalId && inScope(snapshot, connection, account) && (old.action === "restore" ? old.from === input.from : old.target === (capabilityId === "mail.trash" ? "trash" : input.target));
 }
 function uncertain(context, ownerRequestId) {
   return { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:uncertain`, reportedAt: now2(), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The move outcome is unknown until matching historical evidence settles it." }, ownerRequestId } };
@@ -444,7 +447,7 @@ function registerMailMoves(host, options = {}) {
           if (!message)
             return resultFor(context, request.ownerRequestId, { ...connection, objectType: "message", canonicalId: "unavailable" }, { status: "denied" });
           const listing = await host.mail.listed(connection);
-          if (!listing || listing.health.state !== "fresh" || request.snapshot.adapterId !== connection.adapterId || request.snapshot.connectionId !== connection.connectionId || request.snapshot.destinations.length !== 1 || request.snapshot.destinations.some((ref) => ref.adapterId !== connection.adapterId || ref.connectionId !== connection.connectionId || ref.objectType !== "account" || ref.canonicalId !== listing.account))
+          if (!listing || listing.health.state !== "fresh" || !inScope(request.snapshot, connection, listing.account))
             return resultFor(context, request.ownerRequestId, message, { status: "denied" });
           const requestId = key(capabilityId, request.ownerRequestId);
           const previous = await callMoveLookup(provider, requestId, options.timeoutMs);
