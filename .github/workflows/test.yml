@@ -15,3 +15,5 @@ jobs:
       - run: bun run typecheck
       - run: bun run check:adapter
       - run: bun run probe:read
+      - run: bun run check:actions
+      - run: bun run probe:reply
