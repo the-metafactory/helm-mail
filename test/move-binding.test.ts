@@ -26,11 +26,15 @@ function request(capabilityId: string, extra: Record<string, Json> = {}, id = "o
   };
 }
 
-function binding(provider: FakeMoveConnection) {
+function binding(provider: FakeMoveConnection, original?: DispatchRequest) {
   const bridge = fakeBridge({ one: ACCOUNT }, { mail: [item(MESSAGE, ACCOUNT, "Synthetic message")] });
   const factories = new Map<string, DeskConnectorFactory>();
-  const host: DeskAdapterHost = { ...bridge.host, registerConnector(id, factory) { factories.set(id, factory); } };
-  registerMailMoves(host, () => provider, { timeoutMs: 10 });
+  const host: DeskAdapterHost = { ...bridge.host, mailExecution: {
+    connection: () => ({ version: 1, methods: ["move", ...(provider.restore ? ["restore" as const] : []), "lookupMove"] }),
+    invoke: async (_connection, method, input) => method === "move" ? provider.move(input as never) : method === "restore" ? provider.restore!(input as never) : provider.lookupMove(input as string),
+    lookupContext: async () => { if (!original) throw new Error("No fixture approval"); return { operationId: original.operationId, attemptId: original.attemptId, ownerRequestId: original.ownerRequestId, snapshotDigest: original.snapshot.digest, snapshot: original.snapshot }; },
+  }, registerConnector(id, factory) { factories.set(id, factory); } };
+  registerMailMoves(host, { timeoutMs: 10 });
   return { bridge, connector: (id: string) => factories.get(id)!(connection) };
 }
 
@@ -128,7 +132,7 @@ describe("inactive Mail move bindings", () => {
     const first = await binding(provider).connector("mail.move").dispatch!(approved, new AbortController().signal) as OwnerResult;
     expect(first.result.kind).toBe("uncertain");
     expect(provider.effects).toHaveLength(1);
-    const fresh = binding(provider).connector("mail.move");
+    const fresh = binding(provider, approved).connector("mail.move");
     const lookup = await fresh.lookup!({ lifecycleVersion: "1.0.0", operationId: approved.operationId, ownerRequestId: approved.ownerRequestId }, new AbortController().signal) as OperationLookup;
     expect(lookup.result.kind).toBe("known");
     if (lookup.result.kind !== "known") throw new Error("Expected the historical owner result");
@@ -145,7 +149,7 @@ describe("inactive Mail move bindings", () => {
     const stored = provider.requests.values().next().value!;
     if (stored.result.status !== "moved") throw new Error("Expected a saved move");
     stored.result.account = "other-account";
-    const lookup = await binding(provider).connector("mail.move").lookup!({ lifecycleVersion: "1.0.0", operationId: approved.operationId, ownerRequestId: approved.ownerRequestId }, new AbortController().signal) as OperationLookup;
+    const lookup = await binding(provider, approved).connector("mail.move").lookup!({ lifecycleVersion: "1.0.0", operationId: approved.operationId, ownerRequestId: approved.ownerRequestId }, new AbortController().signal) as OperationLookup;
     expect(lookup.result.kind).toBe("unknown");
     expect(provider.effects).toHaveLength(1);
   });

@@ -69,7 +69,9 @@ export type MoveOutcome =
   | { kind: "result"; value: MoveResult }
   | { kind: "unknown" | "unsupported"; reason: string };
 
-export function moveSupport(conn: MailConnection): string | undefined {
+export type MoveConnection = Pick<MailConnection, "version" | "move" | "restore" | "lookupMove">;
+
+export function moveSupport(conn: MoveConnection): string | undefined {
   return checkVersion(conn) ?? (typeof conn.move !== "function" || typeof conn.restore !== "function" || typeof conn.lookupMove !== "function" ? "connection does not offer move, restore and historical lookup" : undefined);
 }
 
@@ -99,7 +101,7 @@ export function parseMoveLookup(raw: unknown): MoveLookupResult | undefined {
   return undefined;
 }
 
-export async function callMove(conn: MailConnection, request: MoveRequest | RestoreRequest, timeoutMs = 5000): Promise<MoveOutcome> {
+export async function callMove(conn: MoveConnection, request: MoveRequest | RestoreRequest, timeoutMs = 5000): Promise<MoveOutcome> {
   const bad = moveSupport(conn);
   if (bad) return { kind: "unsupported", reason: bad };
   const called = await guarded(() => request.action === "restore" ? conn.restore!(request) : conn.move!(request), timeoutMs);
@@ -111,7 +113,7 @@ export async function callMove(conn: MailConnection, request: MoveRequest | Rest
   return { kind: "result", value };
 }
 
-export async function callMoveLookup(conn: MailConnection, requestId: string, timeoutMs = 5000): Promise<MoveLookupResult | undefined> {
+export async function callMoveLookup(conn: MoveConnection, requestId: string, timeoutMs = 5000): Promise<MoveLookupResult | undefined> {
   if (moveSupport(conn)) return undefined;
   const called = await guarded(() => conn.lookupMove!(requestId), timeoutMs);
   return called.ok ? parseMoveLookup(called.value) : undefined;
@@ -162,7 +164,7 @@ export function parseLookupResult(raw: unknown): LookupResult | undefined {
   return undefined;
 }
 
-export function checkVersion(conn: MailConnection): string | undefined {
+export function checkVersion(conn: Pick<MailConnection, "version">): string | undefined {
   if (conn.version === undefined) return "connection declares no version";
   if (conn.version !== INTERFACE_VERSION) {
     return `connection version ${String(conn.version)} is not ${INTERFACE_VERSION}`;

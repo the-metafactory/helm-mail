@@ -14,7 +14,7 @@ describe("inactive reply action package", () => {
     expect(Object.keys(backend)).toEqual(["createDeskAdapter"]);
     const manifest = JSON.parse(readFileSync(join(ACTION_ADAPTER_DIR, "desk-adapter.json"), "utf8"));
     expect(manifest.deskSdkRange).toBe("^1.13.0");
-    expect(manifest.declaration.capabilities.filter((capability: { kind: string }) => capability.kind === "action").map((capability: { capabilityId: string }) => capability.capabilityId)).toEqual([MAIL_REPLY_DRAFT_CAPABILITY]);
+    expect(manifest.declaration.capabilities.filter((capability: { kind: string; capabilityId: string }) => capability.kind === "action" && capability.capabilityId === MAIL_REPLY_DRAFT_CAPABILITY).map((capability: { capabilityId: string }) => capability.capabilityId)).toEqual([MAIL_REPLY_DRAFT_CAPABILITY]);
     expect(manifest.declaration.objectTypes.some((object: { objectType: string }) => object.objectType === "account")).toBe(true);
     expect(manifest.readBindings.length).toBe(3);
   });
@@ -22,7 +22,7 @@ describe("inactive reply action package", () => {
   test("the lifecycle has historical lookup and makes no concurrent dedup/send/cancel/compensation promise", () => {
     const { host } = fakeBridge({ "connection-example": "account-example" });
     let factory: DeskConnectorFactory | undefined;
-    host.registerConnector = (id, create) => { expect(id).toBe(MAIL_REPLY_DRAFT_CAPABILITY); factory = create; };
+    host.registerConnector = (id, create) => { if (id === MAIL_REPLY_DRAFT_CAPABILITY) factory = create; };
     const definition = createDeskAdapter({ ...host, mailExecution: { connection: () => ({ version: 1, methods: ["draft", "lookup"] }), invoke: async () => { throw new Error("No provider may execute in metadata test"); }, lookupContext: async () => { throw new Error("No lookup may execute in metadata test"); } } });
     const connector = factory!({ adapterId: "mail", connectionId: "connection-example" });
     expect(connector.support?.dedup).toEqual({ kind: "none" });

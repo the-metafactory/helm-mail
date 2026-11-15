@@ -13,6 +13,7 @@ import {
 } from "@the-metafactory/cortex/desk-sdk";
 import { parseDraftResult, parseLookupResult, type DraftResult } from "../interface";
 import { createDeskAdapter as createReads } from "../adapter/backend";
+import { registerMailMoves } from "../adapter/moves";
 import { declaration } from "./manifest";
 
 const CAPABILITY = MAIL_REPLY_DRAFT_CAPABILITY;
@@ -120,6 +121,7 @@ function connector(host: DeskAdapterHost, connection: DeskAdapterConnection): De
 
 export function createDeskAdapter(host: DeskAdapterHost): DeskAdapterDefinition {
   const reads = createReads(host);
+  registerMailMoves(host);
   host.registerConnector(CAPABILITY, connection => connector(host, connection));
   return { ...reads, declaration };
 }

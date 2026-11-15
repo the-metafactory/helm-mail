@@ -8,6 +8,66 @@ import {
 
 // src/interface.ts
 var INTERFACE_VERSION = 1;
+function moveSupport(conn) {
+  return checkVersion(conn) ?? (typeof conn.move !== "function" || typeof conn.restore !== "function" || typeof conn.lookupMove !== "function" ? "connection does not offer move, restore and historical lookup" : undefined);
+}
+function parseMoveResult(raw) {
+  if (!isObject(raw))
+    return;
+  if (raw.status === "missing" || raw.status === "denied" || raw.status === "unavailable")
+    return { status: raw.status };
+  if (raw.status === "conflict" && isText(raw.folder))
+    return { status: "conflict", folder: raw.folder };
+  if ((raw.status === "moved" || raw.status === "restored" || raw.status === "exists") && isText(raw.id) && isText(raw.account) && isText(raw.folder) && isText(raw.previousFolder)) {
+    return { status: raw.status, id: raw.id, account: raw.account, folder: raw.folder, previousFolder: raw.previousFolder };
+  }
+  return;
+}
+function parseMoveLookup(raw) {
+  if (!isObject(raw))
+    return;
+  if (raw.status === "not_found" || raw.status === "unavailable")
+    return { status: raw.status };
+  const r = raw.request;
+  const value = parseMoveResult(raw.result);
+  if (raw.status !== "found" || !isObject(r) || !value || r.version !== INTERFACE_VERSION || !isText(r.requestId) || !isText(r.account) || !isText(r.messageId) || !isObject(r.context))
+    return;
+  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== r.account || value.id !== r.messageId))
+    return;
+  if (r.action === "restore" && value.status === "moved" || r.action !== "restore" && value.status === "restored")
+    return;
+  const c = r.context;
+  if (!isText(c.operationId) || !isText(c.attemptId) || typeof c.snapshotDigest !== "string" || !/^[a-f0-9]{64}$/.test(c.snapshotDigest))
+    return;
+  const base = { version: r.version, requestId: r.requestId, account: r.account, messageId: r.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } };
+  if (r.action === "restore" && isText(r.from))
+    return { status: "found", request: { ...base, action: "restore", from: r.from }, result: value };
+  if (r.action === "move" && (r.target === "archive" || r.target === "junk") || r.action === "trash" && r.target === "trash")
+    return { status: "found", request: { ...base, action: r.action, target: r.target }, result: value };
+  return;
+}
+async function callMove(conn, request, timeoutMs = 5000) {
+  const bad = moveSupport(conn);
+  if (bad)
+    return { kind: "unsupported", reason: bad };
+  const called = await guarded(() => request.action === "restore" ? conn.restore(request) : conn.move(request), timeoutMs);
+  if (!called.ok)
+    return { kind: "unknown", reason: called.reason };
+  const value = parseMoveResult(called.value);
+  if (!value)
+    return { kind: "unknown", reason: "unstructured move output" };
+  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== request.account || value.id !== request.messageId))
+    return { kind: "unknown", reason: "move result belongs to another account or message" };
+  if (request.action === "restore" && value.status === "moved" || request.action !== "restore" && value.status === "restored")
+    return { kind: "unknown", reason: "move result belongs to another action" };
+  return { kind: "result", value };
+}
+async function callMoveLookup(conn, requestId, timeoutMs = 5000) {
+  if (moveSupport(conn))
+    return;
+  const called = await guarded(() => conn.lookupMove(requestId), timeoutMs);
+  return called.ok ? parseMoveLookup(called.value) : undefined;
+}
 var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 var isText = (v) => typeof v === "string" && v.length > 0;
 function parseDraftResult(raw) {
@@ -39,6 +99,32 @@ function parseLookupResult(raw) {
     return { status: "found", id: raw.id, account: raw.account, ...request ? { request } : {} };
   }
   return;
+}
+function checkVersion(conn) {
+  if (conn.version === undefined)
+    return "connection declares no version";
+  if (conn.version !== INTERFACE_VERSION) {
+    return `connection version ${String(conn.version)} is not ${INTERFACE_VERSION}`;
+  }
+  return;
+}
+async function guarded(call, timeoutMs) {
+  let timer;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false, reason: "timeout" }), timeoutMs);
+  });
+  const run = (async () => {
+    try {
+      return { ok: true, value: await call() };
+    } catch (e) {
+      return { ok: false, reason: `failed: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  })();
+  try {
+    return await Promise.race([run, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // src/adapter/backend.ts
@@ -282,16 +368,140 @@ function createDeskAdapter(host) {
   };
 }
 
+// src/adapter/moves.ts
+import { mailMoveDeclaration } from "@the-metafactory/cortex/desk-sdk";
+var MOVE_CAPABILITIES = ["mail.move", "mail.trash", "mail.restore"];
+function withMailMoves(base) {
+  if (base.adapterId !== "mail")
+    throw new Error("Mail move bindings require the mail adapter.");
+  const moves = mailMoveDeclaration(base.adapterId);
+  return {
+    ...base,
+    schemas: [...base.schemas, ...moves.schemas.filter((item) => !base.schemas.some((old) => old.schemaId === item.schemaId && old.version === item.version))],
+    objectTypes: [...base.objectTypes, ...moves.objectTypes.filter((item) => !base.objectTypes.some((old) => old.objectType === item.objectType))],
+    capabilities: [...base.capabilities, ...moves.capabilities]
+  };
+}
+var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+var sameRef = (left, right) => left.adapterId === right.adapterId && left.connectionId === right.connectionId && left.objectType === right.objectType && left.canonicalId === right.canonicalId;
+var key = (capabilityId, ownerRequestId) => `${capabilityId}:${ownerRequestId}`;
+var now2 = () => new Date().toISOString();
+function messageOf(snapshot, connection) {
+  const input = snapshot.input;
+  if (!isRecord(input) || !isRecord(input.message))
+    return;
+  const m = input.message;
+  if (m.adapterId !== connection.adapterId || m.connectionId !== connection.connectionId || m.objectType !== "message" || typeof m.canonicalId !== "string" || !m.canonicalId)
+    return;
+  const message = { ...connection, objectType: "message", canonicalId: m.canonicalId };
+  return snapshot.target === undefined || !sameRef(snapshot.target, message) ? undefined : message;
+}
+function historyMatches(old, snapshot, context, ownerRequestId, account, connection, capabilityId) {
+  const message = messageOf(snapshot, connection);
+  const input = snapshot.input;
+  return !!message && old.requestId === key(capabilityId, ownerRequestId) && `mail.${old.action}` === capabilityId && old.context.operationId === context.operationId && old.context.attemptId === context.attemptId && old.context.snapshotDigest === context.snapshotDigest && old.account === account && old.messageId === message.canonicalId && snapshot.adapterId === connection.adapterId && snapshot.connectionId === connection.connectionId && snapshot.destinations.length === 1 && sameRef(snapshot.destinations[0], { ...connection, objectType: "account", canonicalId: account }) && (old.action === "restore" ? old.from === input.from : old.target === (capabilityId === "mail.trash" ? "trash" : input.target));
+}
+function resultFor(context, ownerRequestId, message, value) {
+  const at = now2();
+  const base = { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:${value.status}:${at}`, reportedAt: at };
+  if (value.status === "moved" || value.status === "restored" || value.status === "exists") {
+    return { ...base, result: { kind: "succeeded", output: { ref: message, folder: value.folder }, evidence: { kind: "effect", evidenceId: `mail-move:${context.operationId}`, observedAt: at, ownerRequestId, receipt: { id: value.id, account: value.account, folder: value.folder, previousFolder: value.previousFolder }, refs: [message], ownerRevision: value.folder } } };
+  }
+  const evidence = { kind: "no-effect", evidenceId: `mail-move:${context.operationId}:${value.status}`, observedAt: at, ownerRequestId, receipt: { status: value.status }, final: true };
+  if (value.status === "conflict")
+    return { ...base, result: { kind: "conflict", error: { code: "mail.location_conflict", message: "The message changed location after the move." }, currentOwnerRevision: value.folder, evidence } };
+  const code = value.status === "missing" ? "mail.message_missing" : value.status === "denied" ? "mail.account_denied" : "mail.unavailable";
+  return { ...base, result: { kind: "failed", error: { code, message: value.status === "missing" ? "The message no longer exists." : value.status === "denied" ? "The account is unavailable to this connection." : "This connection cannot perform the move." }, evidence } };
+}
+function registerMailMoves(host, options = {}) {
+  for (const capabilityId of MOVE_CAPABILITIES)
+    host.registerConnector(capabilityId, (connection) => {
+      const bridge = host.mailExecution;
+      const bound = bridge?.connection(connection);
+      const provider = bridge && bound?.version === 1 && ["move", "restore", "lookupMove"].every((method) => bound.methods.includes(method)) ? {
+        version: 1,
+        move: (request) => bridge.invoke(connection, "move", request),
+        restore: (request) => bridge.invoke(connection, "restore", request),
+        lookupMove: (requestId) => bridge.invoke(connection, "lookupMove", requestId)
+      } : undefined;
+      const identity = { kind: "action", ...connection, capabilityId };
+      if (!provider || moveSupport(provider))
+        return identity;
+      return {
+        ...identity,
+        writerOwner: "mail-move",
+        support: { lifecycleVersion: "1.0.0", ...connection, capabilityId, declarationId: "mail-move-interface-1", dedup: { kind: "none" }, operationLookup: "historical", conditionalUpdate: capabilityId === "mail.restore" ? "owner-enforced" : "none", cancellation: "none", ...capabilityId === "mail.restore" ? {} : { compensationCapabilityId: "mail.restore" } },
+        async dispatch(request) {
+          const context = { operationId: request.operationId, attemptId: request.attemptId, snapshotDigest: request.snapshot.digest };
+          const message = messageOf(request.snapshot, connection);
+          if (!message)
+            return resultFor(context, request.ownerRequestId, { ...connection, objectType: "message", canonicalId: "unavailable" }, { status: "denied" });
+          const listing = await host.mail.listed(connection);
+          if (!listing || listing.health.state !== "fresh" || request.snapshot.adapterId !== connection.adapterId || request.snapshot.connectionId !== connection.connectionId || request.snapshot.destinations.length !== 1 || request.snapshot.destinations.some((ref) => ref.adapterId !== connection.adapterId || ref.connectionId !== connection.connectionId || ref.objectType !== "account" || ref.canonicalId !== listing.account))
+            return resultFor(context, request.ownerRequestId, message, { status: "denied" });
+          const requestId = key(capabilityId, request.ownerRequestId);
+          const previous = await callMoveLookup(provider, requestId, options.timeoutMs);
+          if (previous?.status === "found") {
+            const old = previous.request;
+            if (!historyMatches(old, request.snapshot, context, request.ownerRequestId, listing.account, connection, capabilityId))
+              return resultFor(context, request.ownerRequestId, message, { status: "conflict", folder: "unknown" });
+            return resultFor(context, request.ownerRequestId, message, previous.result);
+          }
+          if (capabilityId !== "mail.restore" && !listing.mail.some((mail) => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId))
+            return resultFor(context, request.ownerRequestId, message, { status: "missing" });
+          const input = request.snapshot.input;
+          const base = { version: INTERFACE_VERSION, requestId, account: listing.account, messageId: message.canonicalId, context };
+          let move;
+          if (capabilityId === "mail.restore") {
+            if (typeof input.from !== "string" || !input.from.trim())
+              return resultFor(context, request.ownerRequestId, message, { status: "unavailable" });
+            move = { ...base, action: "restore", from: input.from };
+          } else {
+            if (capabilityId === "mail.move" && input.target !== "archive" && input.target !== "junk")
+              return resultFor(context, request.ownerRequestId, message, { status: "unavailable" });
+            move = { ...base, action: capabilityId === "mail.trash" ? "trash" : "move", target: capabilityId === "mail.trash" ? "trash" : input.target };
+          }
+          const outcome = await callMove(provider, move, options.timeoutMs);
+          if (outcome.kind === "result")
+            return resultFor(context, request.ownerRequestId, message, outcome.value);
+          if (outcome.kind === "unsupported")
+            return resultFor(context, request.ownerRequestId, message, { status: "unavailable" });
+          return { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:uncertain`, reportedAt: now2(), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The move outcome is unknown until lookup settles it." }, ownerRequestId: request.ownerRequestId } };
+        },
+        async lookup(request) {
+          const checkedAt = now2();
+          const base = { lifecycleVersion: "1.0.0", operationId: request.operationId, checkedAt };
+          let context;
+          try {
+            context = await bridge.lookupContext(connection, request);
+          } catch {
+            return { ...base, result: { kind: "unknown", reason: { code: "mail.lookup_unavailable", message: "Original approved context is unavailable." } } };
+          }
+          const listing = await host.mail.listed(connection);
+          if (!listing)
+            return { ...base, result: { kind: "denied", reason: { code: "mail.account_denied", message: "The connection is unavailable." } } };
+          const found = await callMoveLookup(provider, key(capabilityId, request.ownerRequestId), options.timeoutMs);
+          if (!found || found.status !== "found")
+            return { ...base, result: { kind: "unknown", reason: { code: "mail.lookup_unavailable", message: "The provider has no definitive move outcome." } } };
+          const old = found.request;
+          if (!historyMatches(old, context.snapshot, context, request.ownerRequestId, listing.account, connection, capabilityId))
+            return { ...base, result: { kind: "denied", reason: { code: "mail.account_denied", message: "The result belongs to another connection scope." } } };
+          return { ...base, result: { kind: "known", response: resultFor(old.context, request.ownerRequestId, { ...connection, objectType: "message", canonicalId: old.messageId }, found.result) } };
+        }
+      };
+    });
+}
+
 // src/adapter-actions/manifest.ts
 import { mailReplyDraftDeclaration } from "@the-metafactory/cortex/desk-sdk";
 var reply = mailReplyDraftDeclaration(ADAPTER_ID);
 var readDeclaration = declaration;
-var declaration2 = {
+var declaration2 = withMailMoves({
   ...readDeclaration,
   schemas: [...readDeclaration.schemas, ...reply.schemas],
   objectTypes: [...readDeclaration.objectTypes, ...reply.objectTypes.filter((item) => !readDeclaration.objectTypes.some((read) => read.objectType === item.objectType))],
   capabilities: [...readDeclaration.capabilities, ...reply.capabilities]
-};
+});
 
 // src/adapter-actions/backend.ts
 var CAPABILITY = MAIL_REPLY_DRAFT_CAPABILITY;
@@ -396,6 +606,7 @@ function connector(host, connection) {
 }
 function createDeskAdapter2(host) {
   const reads = createDeskAdapter(host);
+  registerMailMoves(host);
   host.registerConnector(CAPABILITY, (connection) => connector(host, connection));
   return { ...reads, declaration: declaration2 };
 }

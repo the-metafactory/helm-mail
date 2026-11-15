@@ -14,7 +14,8 @@
     "typecheck": "bunx tsc --noEmit",
     "build:actions": "bun scripts/build-actions.ts",
     "check:actions": "bun scripts/build-actions.ts --check",
-    "probe:reply": "bun scripts/probe-reply.ts"
+    "probe:reply": "bun scripts/probe-reply.ts",
+    "probe:moves": "bun scripts/probe-moves.ts"
   },
   "devDependencies": {
     "@the-metafactory/cortex": "https://codeload.github.com/the-metafactory/cortex/tar.gz/refs/tags/v6.32.0",
