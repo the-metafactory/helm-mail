@@ -6,7 +6,7 @@
   "domainContractVersion": "1.0.0",
   "backend": {
     "entry": "backend.mjs",
-    "sha256": "11b9b2f4ecf047b2084d42b33b085947c5e5cc0ebd2f848110fa4eff37114db8"
+    "sha256": "dc2df43b0ff243d5d39aaf3090ad38e28c63a2784650ec86007e1d2d77d5e548"
   },
   "declaration": {
     "adapterId": "mail",
@@ -591,6 +591,98 @@
             }
           }
         }
+      },
+      {
+        "schemaId": "mail.unsubscribe.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "message"
+          ],
+          "properties": {
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mail.unsubscribe.output",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "host"
+          ],
+          "properties": {
+            "ref": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "host": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
       }
     ],
     "objectTypes": [
@@ -756,6 +848,26 @@
         },
         "outputSchemaRef": {
           "schemaId": "mail.mail.move.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.unsubscribe",
+        "label": "Unsubscribe",
+        "kind": "action",
+        "objectTypes": [
+          "message"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.unsubscribe.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.unsubscribe.output",
           "version": "1.0.0"
         },
         "errorSchemaRef": {
