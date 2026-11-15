@@ -32,7 +32,7 @@ function validResult(value: UnsubscribeResult, c: DeskMailOperationContext, acco
 function matches(found: Extract<UnsubscribeLookup, { status: "found" }>, c: DeskMailOperationContext, account: string, host?: string): boolean {
   const r = found.request;
   return scoped(c, account) && r.requestId === key(c.ownerRequestId) && r.account === account && r.messageId === c.snapshot.target?.canonicalId
-    && r.context.operationId === c.operationId && r.context.attemptId === c.attemptId && r.context.snapshotDigest === c.snapshotDigest && validResult(found.result, c, account, host);
+    && r.context.operationId === c.operationId && r.context.attemptId === c.attemptId && r.context.snapshotDigest === c.snapshotDigest && (found.result.status !== "unsubscribed" && found.result.status !== "exists" || found.result.account === account && found.result.id === c.snapshot.target?.canonicalId && (host === undefined || found.result.host === host));
 }
 export function registerMailUnsubscribe(host: DeskAdapterHost): void {
   host.registerConnector("mail.unsubscribe", connection => {

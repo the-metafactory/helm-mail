@@ -6,7 +6,7 @@
   "domainContractVersion": "1.0.0",
   "backend": {
     "entry": "backend.mjs",
-    "sha256": "cda523ae5d5d71775c5519efb9367b5489e18d0670bf24d9da47a66e3266199a"
+    "sha256": "38f6f410f5457e93c52b0d51a6aedbe3280507aa3a00b2476cef875de615f319"
   },
   "declaration": {
     "adapterId": "mail",
