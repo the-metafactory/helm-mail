@@ -9,10 +9,11 @@ if (args[1] === "lookup") {
   state.lookups++;
   writeFileSync(path, JSON.stringify(state));
   const id = args[args.indexOf("--") + 1];
-  console.log(JSON.stringify(state.draft?.requestId === id ? { status: "found", id: state.draft.id, account: state.draft.account } : { status: "not_found" }));
+  const { id: _draftId, ...request } = state.draft ?? {};
+  console.log(JSON.stringify(state.draft?.requestId === id ? { status: "found", id: state.draft.id, account: state.draft.account, request } : { status: "not_found" }));
 } else if (args[1] === "create") {
   const requestId = option("request-id");
-  const draft = { id: "fake-native-draft", requestId, account: option("account"), messageId: option("in-reply-to"), recipient: option("to"), subject: option("subject"), body: readFileSync(option("file")!, "utf8") };
+  const draft = { id: "fake-native-draft", version: 1, requestId, account: option("account"), messageId: option("in-reply-to"), recipient: option("to"), subject: option("subject"), body: readFileSync(option("file")!, "utf8") };
   if (!state.draft) {
     state.creates++;
     state.draft = draft;

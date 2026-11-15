@@ -13,7 +13,9 @@ import { binding, fakeMailSource, ACCOUNT_ONE, ACCOUNT_TWO, item } from "../test
 const BODY = "  Exact reply\nwith spaces  ";
 const MESSAGE = "<reply@example.test>";
 const mail = fakeMailSource([binding()], null, [item(MESSAGE, ACCOUNT_ONE, "Example subject")]);
-const snapshot: MailActionScenarioOptions["snapshot"] = context => mailReplyDraftSnapshot({ ...context, account: mailAccountRef(context.adapterId, context.connectionId, context.account), message: mailMessageRef(context.adapterId, context.connectionId, MESSAGE), body: BODY });
+const snapshotWith = (body: string): MailActionScenarioOptions["snapshot"] => context => mailReplyDraftSnapshot({ ...context, account: mailAccountRef(context.adapterId, context.connectionId, context.account), message: mailMessageRef(context.adapterId, context.connectionId, MESSAGE), body });
+const snapshot = snapshotWith(BODY);
+const timeoutProvider = (fake: FakeConnection) => ({ version: 1, draft: async (request: DraftRequest) => { await fake.draft(request); throw new Error("Synthetic provider timeout after effect"); }, lookup: (id: string) => fake.lookup(id) });
 const scenario = (extra: Partial<MailActionScenarioOptions> = {}) => runMailActionScenario(ACTION_ADAPTER_DIR, { capabilityId: MAIL_REPLY_DRAFT_CAPABILITY, mail, snapshot, ...extra });
 const asRecord = (value: Json): Record<string, any> => value as Record<string, any>;
 
@@ -41,6 +43,14 @@ function checkCorrelation(report: MailActionScenarioReport) {
   assert.equal(report.credentialRequests, 0);
 }
 
+function checkTimeoutRecovery(report: MailActionScenarioReport) {
+  checkCorrelation(report);
+  assert.deepEqual(report.stages.map(stage => stage.state), ["uncertain", "uncertain", "succeeded", "succeeded", "succeeded"]);
+  assert.equal(report.reconstructions, 2);
+  assert.equal(report.ownerCalls.dispatch, 1);
+  assert.equal(report.ownerCalls.lookup, 1);
+}
+
 export async function probeReply() {
   const fake = new FakeConnection();
   const seen: DraftRequest[] = [];
@@ -57,23 +67,19 @@ export async function probeReply() {
   assert.equal(seen[0]!.requestId, `${MAIL_REPLY_DRAFT_CAPABILITY}:conformance-request`);
 
   const interrupted = new FakeConnection();
-  const timed = await scenario({ execution: { connection: () => ({ version: 1, draft: async (request: DraftRequest) => { await interrupted.draft(request); throw new Error("Synthetic provider timeout after effect"); }, lookup: (id: string) => interrupted.lookup(id) }) }, steps: ["restart", "reconcile", "restart", "repeat"] });
-  checkCorrelation(timed);
-  assert.deepEqual(timed.stages.map(stage => stage.state), ["uncertain", "uncertain", "succeeded", "succeeded", "succeeded"]);
-  assert.equal(timed.reconstructions, 2);
-  assert.equal(timed.ownerCalls.dispatch, 1);
-  assert.equal(timed.ownerCalls.lookup, 1);
+  const timed = await scenario({ execution: { connection: () => (timeoutProvider(interrupted)) }, steps: ["restart", "reconcile", "restart", "repeat"] });
+  checkTimeoutRecovery(timed);
   assert.equal(interrupted.draftCount, 1);
 
   const replayFake = new FakeConnection();
-  const noReplay = await scenario({ execution: { connection: () => ({ version: 1, draft: async (request: DraftRequest) => { await replayFake.draft(request); throw new Error("Synthetic uncertain owner"); }, lookup: (id: string) => replayFake.lookup(id) }) }, steps: ["repeat"] });
+  const noReplay = await scenario({ execution: { connection: () => (timeoutProvider(replayFake)) }, steps: ["repeat"] });
   assert.deepEqual(noReplay.stages.map(stage => stage.state), ["uncertain", "uncertain"]);
   assert.equal(noReplay.stages[1]?.outcome, "not-dispatchable");
   assert.equal(noReplay.ownerCalls.dispatch, 1);
   assert.equal(replayFake.draftCount, 1);
 
   let deniedCalls = 0;
-  const denied = await scenario({ mail: fakeMailSource([binding()], null, [item(MESSAGE, ACCOUNT_TWO, "Another account")]), execution: { connection: () => ({ version: 1, draft: async () => { deniedCalls++; return {}; }, lookup: async () => ({ status: "not_found" }) }) } });
+  const denied = await scenario({ mail: fakeMailSource([binding(), binding({ connectionId: "connection-other", account: ACCOUNT_TWO })], null, [item(MESSAGE, ACCOUNT_TWO, "Another account")]), execution: { connection: () => ({ version: 1, draft: async () => { deniedCalls++; return {}; }, lookup: async () => ({ status: "not_found" }) }) } });
   assert.notEqual(denied.stages[0]?.state, "succeeded");
   assert.equal(deniedCalls, 0);
   for (const connection of [undefined, { draft: provider.draft, lookup: provider.lookup }, { version: 1, draft: provider.draft }] as const) {
@@ -96,27 +102,51 @@ export async function probeReply() {
   checkCorrelation(serialRepeat);
   assert.equal(seen.length, 2);
   assert.equal(fake.draftCount, 1);
-  const serialConflict = await scenario({ execution: { connection: () => provider }, snapshot: context => mailReplyDraftSnapshot({ ...context, account: mailAccountRef(context.adapterId, context.connectionId, context.account), message: mailMessageRef(context.adapterId, context.connectionId, MESSAGE), body: "Different approved content" }) });
+  const serialConflict = await scenario({ execution: { connection: () => provider }, snapshot: snapshotWith("Different approved content") });
   assert.equal(serialConflict.stages[0]?.state, "conflict");
   assert.equal(seen.length, 3);
   assert.equal(fake.draftCount, 1);
+
+  const timeoutConflict = await scenario({ execution: { connection: () => timeoutProvider(fake) }, snapshot: snapshotWith("Different approved content"), steps: ["restart", "reconcile", "repeat"] });
+  assert.equal(timeoutConflict.stages[0]?.state, "uncertain");
+  assert.equal(timeoutConflict.stages.at(-1)?.state, "uncertain");
+  assert.ok(timeoutConflict.stages.every(stage => stage.state !== "succeeded"));
+  assert.equal(fake.draftCount, 1);
+  assert.equal(timeoutConflict.ownerCalls.dispatch, 1);
+  const legacyFake = new FakeConnection();
+  const legacyProvider = timeoutProvider(legacyFake);
+  const legacyLookup = await scenario({ execution: { connection: () => ({ ...legacyProvider, lookup: async (id: string) => {
+    const found = await legacyFake.lookup(id) as { status: string; id?: string; account?: string };
+    return { status: found.status, ...(found.id ? { id: found.id, account: found.account } : {}) };
+  } }) }, steps: ["restart", "reconcile", "repeat"] });
+  assert.ok(legacyLookup.stages.every(stage => stage.state === "uncertain"));
+  assert.equal(legacyFake.draftCount, 1);
+  assert.equal(legacyLookup.ownerCalls.dispatch, 1);
+
+  for (const [field, value] of Object.entries({ recipient: "other@example.test", subject: "Different subject", messageId: "<other@example.test>" })) {
+    const altered = new FakeConnection();
+    const owner = timeoutProvider(altered);
+    const mismatched = await scenario({ execution: { connection: () => ({ ...owner, lookup: async (id: string) => {
+      const found = await altered.lookup(id) as { status: string; request: DraftRequest };
+      return { ...found, request: { ...found.request, [field]: value } };
+    } }) }, steps: ["restart", "reconcile", "repeat"] });
+    assert.ok(mismatched.stages.every(stage => stage.state === "uncertain"));
+    assert.equal(altered.draftCount, 1);
+    assert.equal(mismatched.ownerCalls.dispatch, 1);
+  }
 
   const dir = mkdtempSync(join(tmpdir(), "helm-reply-fake-"));
   try {
     const statePath = join(dir, "state.json");
     const cli = new CliConnection({ command: [process.execPath, join(import.meta.dir, "../test/fixtures/reply-native-cli.ts")], env: { HELM_REPLY_FAKE_STATE: statePath }, timeoutMs: 500 });
     const native = await scenario({ execution: { connection: () => cli }, dispatchWaitMs: 2_000, steps: ["restart", "reconcile", "restart", "repeat"] });
-    checkCorrelation(native);
-    assert.deepEqual(native.stages.map(stage => stage.state), ["uncertain", "uncertain", "succeeded", "succeeded", "succeeded"]);
-    assert.equal(native.reconstructions, 2);
-    assert.equal(native.ownerCalls.dispatch, 1);
-    assert.equal(native.ownerCalls.lookup, 1);
+    checkTimeoutRecovery(native);
     const state = JSON.parse(readFileSync(statePath, "utf8"));
     assert.equal(state.creates, 1);
     assert.equal(state.lookups, 2);
-    assert.deepEqual(state.draft, { id: "fake-native-draft", requestId: `${MAIL_REPLY_DRAFT_CAPABILITY}:conformance-request`, account: ACCOUNT_ONE, messageId: MESSAGE, recipient: "sender@example.test", subject: "Re: Example subject", body: BODY });
+    assert.deepEqual(state.draft, { id: "fake-native-draft", version: 1, requestId: `${MAIL_REPLY_DRAFT_CAPABILITY}:conformance-request`, account: ACCOUNT_ONE, messageId: MESSAGE, recipient: "sender@example.test", subject: "Re: Example subject", body: BODY });
     assert.ok(!JSON.stringify(state).includes("attemptId"));
-    return { success, timed, noReplay, denied, foreign, cloud, serialRepeat, serialConflict, native, effects: { fake: fake.draftCount, timeoutFake: interrupted.draftCount, native: state.creates }, reconstructionLimit: "Controlled in-process loader/factory/connector/host reconstruction; no OS process termination." };
+    return { success, timed, noReplay, denied, foreign, cloud, serialRepeat, serialConflict, timeoutConflict, legacyLookup, native, effects: { fake: fake.draftCount, timeoutFake: interrupted.draftCount, native: state.creates }, reconstructionLimit: "Controlled in-process loader/factory/connector/host reconstruction; no OS process termination." };
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 if (import.meta.main) {

@@ -101,7 +101,15 @@ function connector(host: DeskAdapterHost, connection: DeskAdapterConnection): De
         const context = await bridge.lookupContext(connection, request);
         const found = parseLookupResult(await bridge.invoke(connection, "lookup", requestId(request.ownerRequestId)));
         const account = context.snapshot.destinations[0]?.canonicalId;
-        if (found?.status === "found" && found.account === account) return { ...base, result: { kind: "known", response: settled(connection, context, { ...found, status: "exists" }) } };
+        const listing = await host.mail.listed(connection);
+        const saved = found?.status === "found" ? found.request : undefined;
+        const mail = listing?.mail.find(item => item.ref.connection === connection.connectionId && item.ref.messageId === context.snapshot.target?.canonicalId && item.account === account);
+        const body = (context.snapshot.input as { body: string }).body;
+        if (found?.status === "found" && found.account === account && saved && mail && listing?.account === account && listing.health.state === "fresh" && scopeMatches(context, listing.account)
+          && saved.requestId === requestId(request.ownerRequestId) && saved.account === account && saved.messageId === context.snapshot.target?.canonicalId && saved.body === body
+          && saved.recipient === mail.from.address && saved.subject === mailReplySubject(mail.subject)) {
+          return { ...base, result: { kind: "known", response: settled(connection, context, { status: "exists", id: found.id, account: found.account }) } };
+        }
         return { ...base, result: { kind: "unknown", reason: { code: "mail.lookup_unknown", message: "No matching saved draft is known." } } };
       } catch {
         return { ...base, result: { kind: "unavailable", reason: { code: "mail.lookup_unavailable", message: "Historical draft lookup is unavailable." } } };

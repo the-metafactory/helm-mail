@@ -7,6 +7,7 @@ import {
 } from "@the-metafactory/cortex/desk-sdk";
 
 // src/interface.ts
+var INTERFACE_VERSION = 1;
 var isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 var isText = (v) => typeof v === "string" && v.length > 0;
 function parseDraftResult(raw) {
@@ -17,6 +18,13 @@ function parseDraftResult(raw) {
   }
   return { status: raw.status, id: raw.id, account: raw.account };
 }
+function parseDraftRequest(raw) {
+  if (!isObject(raw) || raw.version !== INTERFACE_VERSION || !isText(raw.requestId) || !/^[A-Za-z0-9._:@-]{1,200}$/.test(raw.requestId))
+    return;
+  if (!isText(raw.account) || !isText(raw.messageId) || !isText(raw.recipient) || !isText(raw.subject) || typeof raw.body !== "string")
+    return;
+  return { version: INTERFACE_VERSION, requestId: raw.requestId, account: raw.account, messageId: raw.messageId, recipient: raw.recipient, subject: raw.subject, body: raw.body };
+}
 function parseLookupResult(raw) {
   if (!isObject(raw))
     return;
@@ -25,7 +33,10 @@ function parseLookupResult(raw) {
   if (raw.status === "unavailable")
     return { status: "unavailable" };
   if (raw.status === "found" && isText(raw.id) && isText(raw.account)) {
-    return { status: "found", id: raw.id, account: raw.account };
+    const request = raw.request === undefined ? undefined : parseDraftRequest(raw.request);
+    if (raw.request !== undefined && !request)
+      return;
+    return { status: "found", id: raw.id, account: raw.account, ...request ? { request } : {} };
   }
   return;
 }
@@ -369,8 +380,13 @@ function connector(host, connection) {
         const context = await bridge.lookupContext(connection, request);
         const found = parseLookupResult(await bridge.invoke(connection, "lookup", requestId(request.ownerRequestId)));
         const account = context.snapshot.destinations[0]?.canonicalId;
-        if (found?.status === "found" && found.account === account)
-          return { ...base, result: { kind: "known", response: settled(connection, context, { ...found, status: "exists" }) } };
+        const listing = await host.mail.listed(connection);
+        const saved = found?.status === "found" ? found.request : undefined;
+        const mail = listing?.mail.find((item) => item.ref.connection === connection.connectionId && item.ref.messageId === context.snapshot.target?.canonicalId && item.account === account);
+        const body = context.snapshot.input.body;
+        if (found?.status === "found" && found.account === account && saved && mail && listing?.account === account && listing.health.state === "fresh" && scopeMatches(context, listing.account) && saved.requestId === requestId(request.ownerRequestId) && saved.account === account && saved.messageId === context.snapshot.target?.canonicalId && saved.body === body && saved.recipient === mail.from.address && saved.subject === mailReplySubject(mail.subject)) {
+          return { ...base, result: { kind: "known", response: settled(connection, context, { status: "exists", id: found.id, account: found.account }) } };
+        }
         return { ...base, result: { kind: "unknown", reason: { code: "mail.lookup_unknown", message: "No matching saved draft is known." } } };
       } catch {
         return { ...base, result: { kind: "unavailable", reason: { code: "mail.lookup_unavailable", message: "Historical draft lookup is unavailable." } } };

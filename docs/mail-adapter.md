@@ -52,6 +52,14 @@ suppress repeats, but the interface offers no attested concurrent dedup guarante
 Consequently the host cannot authorize same-key replay after uncertainty; lookup
 must settle the existing attempt. Native request-ID evidence stays
 in the saved draft; a missing draft at lookup remains unknown, never proof of no effect.
+Historical success additionally requires the optional saved `request` evidence on
+a found lookup. The binding compares its original body/message/account/request ID
+to the durable approved snapshot and revalidates the listed recipient/subject.
+Absent or mismatched evidence leaves the attempt unknown; it never stamps a found
+ID with an unproven current digest. ID/account-only legacy CLI lookup remains valid
+at the interface boundary but cannot safely settle an uncertain reply here. No
+claim is made that a current deployment's private CLI already supplies this evidence.
+
 The process-local serialization map does not survive process termination or certify
 separate loaders/processes. No 60-second retention or cross-process dedup guarantee
 is advertised; this inactive package does not strengthen the existing interface.
@@ -63,6 +71,8 @@ checks exact confirmation/body/recipient/subject, one effect on repeat, serial
 same-ID/same-content returning the saved draft and changed-content conflict, missing
 version/method refusal, foreign account/connection refusal, and timeout recovery
 with original IDs and receipts after two loader/factory/connector/host reconstructions.
+Timeout-on-conflict, absent saved-request evidence and altered native recipient,
+subject or message ID remain uncertain without replay.
 The real Helm `CliConnection` uses a fake CLI that saves its invented effect to a
 private temporary file and waits until the connection timeout kills it; lookup
 reads that effect after the binding is reconstructed. No original attempt IDs or
