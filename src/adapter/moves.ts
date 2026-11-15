@@ -40,7 +40,7 @@ function messageOf(request: DispatchRequest, connection: DeskAdapterConnection):
   const m = input.message;
   if (m.adapterId !== connection.adapterId || m.connectionId !== connection.connectionId || m.objectType !== "message" || typeof m.canonicalId !== "string" || !m.canonicalId) return undefined;
   const message = { ...connection, objectType: "message", canonicalId: m.canonicalId };
-  return request.snapshot.target !== undefined && !sameRef(request.snapshot.target, message) ? undefined : message;
+  return request.snapshot.target === undefined || !sameRef(request.snapshot.target, message) ? undefined : message;
 }
 
 function resultFor(context: MoveContext, ownerRequestId: string, message: ObjectReference, value: MoveResult): OwnerResult {
@@ -68,7 +68,7 @@ export function registerMailMoves(host: DeskAdapterHost, connectionFor: (connect
         const message = messageOf(request, connection);
         if (!message) return resultFor(context, request.ownerRequestId, { ...connection, objectType: "message", canonicalId: "unavailable" }, { status: "denied" });
         const listing = await host.mail.listed(connection);
-        if (!listing || request.snapshot.destinations.some(ref => ref.adapterId !== connection.adapterId || ref.connectionId !== connection.connectionId || ref.objectType !== "account" || ref.canonicalId !== listing.account)) return resultFor(context, request.ownerRequestId, message, { status: "denied" });
+        if (!listing || request.snapshot.destinations.length !== 1 || request.snapshot.destinations.some(ref => ref.adapterId !== connection.adapterId || ref.connectionId !== connection.connectionId || ref.objectType !== "account" || ref.canonicalId !== listing.account)) return resultFor(context, request.ownerRequestId, message, { status: "denied" });
         const requestId = key(capabilityId, request.ownerRequestId);
         const previous = await callMoveLookup(provider, requestId, options.timeoutMs);
         if (previous?.status === "found") {

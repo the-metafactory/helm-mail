@@ -107,6 +107,21 @@ describe("inactive Mail move bindings", () => {
     for (const id of ["mail.move", "mail.trash", "mail.restore"]) expect(connector(id).dispatch).toBeUndefined();
   });
 
+  test("the admitted snapshot must name its message and exactly one matching account", async () => {
+    for (const mode of ["empty", "multiple", "other-account", "no-target"] as const) {
+      const provider = new FakeMoveConnection({ account: ACCOUNT, folders: { [MESSAGE]: "Inbox" } });
+      const approved = request("mail.move", { target: "archive" });
+      if (mode === "empty") approved.snapshot.destinations = [];
+      if (mode === "multiple") approved.snapshot.destinations.push({ ...approved.snapshot.destinations[0]! });
+      if (mode === "other-account") approved.snapshot.destinations[0]!.canonicalId = "other-account";
+      if (mode === "no-target") delete approved.snapshot.target;
+      const result = await binding(provider).connector("mail.move").dispatch!(approved, new AbortController().signal) as OwnerResult;
+      expect(result.result.kind).toBe("failed");
+      expect(provider.effects).toHaveLength(0);
+      expect(provider.requests.size).toBe(0);
+    }
+  });
+
   test("timeout stays uncertain, and a fresh binding can read the provider's historical outcome", async () => {
     const provider = new FakeMoveConnection({ account: ACCOUNT, folders: { [MESSAGE]: "Inbox" }, timeoutAfterEffect: true });
     const approved = request("mail.move", { target: "archive" });
@@ -133,5 +148,19 @@ describe("inactive Mail move bindings", () => {
     const lookup = await binding(provider).connector("mail.move").lookup!({ lifecycleVersion: "1.0.0", operationId: approved.operationId, ownerRequestId: approved.ownerRequestId }, new AbortController().signal) as OperationLookup;
     expect(lookup.result.kind).toBe("unknown");
     expect(provider.effects).toHaveLength(1);
+  });
+
+  test("a historical lookup cannot substitute another action's success", async () => {
+    for (const action of ["move", "restore"] as const) {
+      const provider = new FakeMoveConnection({ account: ACCOUNT, folders: { [MESSAGE]: action === "restore" ? "Archive" : "Inbox" }, previousFolders: { [MESSAGE]: "Inbox" } });
+      const approved = request(`mail.${action}`, action === "restore" ? { from: "Archive" } : { target: "archive" });
+      await binding(provider).connector(`mail.${action}`).dispatch!(approved, new AbortController().signal);
+      const stored = provider.requests.values().next().value!;
+      if (stored.result.status !== "moved" && stored.result.status !== "restored") throw new Error("Expected a saved mutation");
+      stored.result.status = action === "restore" ? "moved" : "restored";
+      const lookup = await binding(provider).connector(`mail.${action}`).lookup!({ lifecycleVersion: "1.0.0", operationId: approved.operationId, ownerRequestId: approved.ownerRequestId }, new AbortController().signal) as OperationLookup;
+      expect(lookup.result.kind).toBe("unknown");
+      expect(provider.effects).toHaveLength(1);
+    }
   });
 });

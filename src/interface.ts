@@ -90,6 +90,7 @@ export function parseMoveLookup(raw: unknown): MoveLookupResult | undefined {
   const value = parseMoveResult(raw.result);
   if (raw.status !== "found" || !isObject(r) || !value || r.version !== INTERFACE_VERSION || !isText(r.requestId) || !isText(r.account) || !isText(r.messageId) || !isObject(r.context)) return undefined;
   if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== r.account || value.id !== r.messageId)) return undefined;
+  if ((r.action === "restore" && value.status === "moved") || (r.action !== "restore" && value.status === "restored")) return undefined;
   const c = r.context;
   if (!isText(c.operationId) || !isText(c.attemptId) || typeof c.snapshotDigest !== "string" || !/^[a-f0-9]{64}$/.test(c.snapshotDigest)) return undefined;
   const base = { version: r.version, requestId: r.requestId, account: r.account, messageId: r.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } };
