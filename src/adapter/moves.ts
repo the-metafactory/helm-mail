@@ -38,6 +38,10 @@ function historyMatches(old: MoveRequest | RestoreRequest, snapshot: ApprovedSna
     && (old.action === "restore" ? old.from === input.from : old.target === (capabilityId === "mail.trash" ? "trash" : input.target));
 }
 
+function uncertain(context: MoveContext, ownerRequestId: string): OwnerResult {
+  return { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:uncertain`, reportedAt: now(), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The move outcome is unknown until matching historical evidence settles it." }, ownerRequestId } };
+}
+
 function resultFor(context: MoveContext, ownerRequestId: string, message: ObjectReference, value: MoveResult): OwnerResult {
   const at = now();
   const base = { lifecycleVersion: "1.0.0" as const, ...context, resultId: `${context.attemptId}:${value.status}:${at}`, reportedAt: at };
@@ -73,9 +77,10 @@ export function registerMailMoves(host: DeskAdapterHost, options: { timeoutMs?: 
         if (!listing || listing.health.state !== "fresh" || request.snapshot.adapterId !== connection.adapterId || request.snapshot.connectionId !== connection.connectionId || request.snapshot.destinations.length !== 1 || request.snapshot.destinations.some(ref => ref.adapterId !== connection.adapterId || ref.connectionId !== connection.connectionId || ref.objectType !== "account" || ref.canonicalId !== listing.account)) return resultFor(context, request.ownerRequestId, message, { status: "denied" });
         const requestId = key(capabilityId, request.ownerRequestId);
         const previous = await callMoveLookup(provider, requestId, options.timeoutMs);
-        if (previous?.status === "found") {
+        if (!previous || previous.status === "unavailable") return uncertain(context, request.ownerRequestId);
+        if (previous.status === "found") {
           const old = previous.request;
-          if (!historyMatches(old, request.snapshot, context, request.ownerRequestId, listing.account, connection, capabilityId)) return resultFor(context, request.ownerRequestId, message, { status: "conflict", folder: "unknown" });
+          if (!historyMatches(old, request.snapshot, context, request.ownerRequestId, listing.account, connection, capabilityId)) return uncertain(context, request.ownerRequestId);
           return resultFor(context, request.ownerRequestId, message, previous.result);
         }
         if (capabilityId !== "mail.restore" && !listing.mail.some(mail => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId)) return resultFor(context, request.ownerRequestId, message, { status: "missing" });
@@ -92,7 +97,7 @@ export function registerMailMoves(host: DeskAdapterHost, options: { timeoutMs?: 
         const outcome = await callMove(provider, move, options.timeoutMs);
         if (outcome.kind === "result") return resultFor(context, request.ownerRequestId, message, outcome.value);
         if (outcome.kind === "unsupported") return resultFor(context, request.ownerRequestId, message, { status: "unavailable" });
-        return { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:uncertain`, reportedAt: now(), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The move outcome is unknown until lookup settles it." }, ownerRequestId: request.ownerRequestId } };
+        return uncertain(context, request.ownerRequestId);
       },
       async lookup(request): Promise<OperationLookup> {
         const checkedAt = now();

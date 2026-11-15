@@ -25,4 +25,4 @@ test("actual action package moves and restores through the public production-jou
   const report = await probeMoves();
   expect(report.effects).toBe(1);
   expect(report.reports.timeout!.reconstructions).toBe(2);
-});
+}, 20_000);

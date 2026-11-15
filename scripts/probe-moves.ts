@@ -92,6 +92,10 @@ export async function probeMoves() {
     assert.equal(fake.effects.length, 0);
     reports[mode] = report;
   }
+  const unavailableHistory = fresh();
+  reports.unavailableHistory = await scenario({ version: 1, move: (request: MoveRequest) => unavailableHistory.move(request), restore: (request: RestoreRequest) => unavailableHistory.restore!(request), lookupMove: async () => ({ status: "unavailable" }) });
+  check(reports.unavailableHistory, "uncertain");
+  assert.equal(unavailableHistory.effects.length, 0);
   const interrupted = fresh();
   reports.timeout = await scenario(timedProvider(interrupted), "move", "archive", { steps: ["restart", "reconcile", "restart", "repeat"] });
   check(reports.timeout, "succeeded");
@@ -129,6 +133,12 @@ export async function probeMoves() {
   check(reports.timeoutConflict, "uncertain");
   assert.ok(reports.timeoutConflict.stages.every(stage => stage.state === "uncertain"));
   assert.equal(conflictFake.effects.length, 1);
+  reports.savedMismatch = await scenario(conflictFake, "move", "junk", { steps: ["restart", "reconcile", "repeat"] });
+  check(reports.savedMismatch, "uncertain");
+  assert.ok(reports.savedMismatch.stages.every(stage => stage.state === "uncertain"));
+  assert.equal(conflictFake.effects.length, 1);
+  const mismatchEvents = reports.savedMismatch.events as Record<string, any>[];
+  assert.ok(mismatchEvents.every(entry => entry.event.kind !== "owner-result" || entry.event.response.result.kind === "uncertain"));
   return { reports, effects: interrupted.effects.length, reconstructionLimit: "Controlled in-process loader/factory/connector/host reconstruction; no OS process termination." };
 }
 if (import.meta.main) {

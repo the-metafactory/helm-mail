@@ -23,6 +23,13 @@ function parseMoveResult(raw) {
   }
   return;
 }
+function moveResultMismatch(request, value) {
+  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== request.account || value.id !== request.messageId))
+    return "move result belongs to another account or message";
+  if (request.action === "restore" && value.status === "moved" || request.action !== "restore" && value.status === "restored")
+    return "move result belongs to another action";
+  return;
+}
 function parseMoveLookup(raw) {
   if (!isObject(raw))
     return;
@@ -32,9 +39,7 @@ function parseMoveLookup(raw) {
   const value = parseMoveResult(raw.result);
   if (raw.status !== "found" || !isObject(r) || !value || r.version !== INTERFACE_VERSION || !isText(r.requestId) || !isText(r.account) || !isText(r.messageId) || !isObject(r.context))
     return;
-  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== r.account || value.id !== r.messageId))
-    return;
-  if (r.action === "restore" && value.status === "moved" || r.action !== "restore" && value.status === "restored")
+  if (typeof r.action !== "string" || moveResultMismatch({ action: r.action, account: r.account, messageId: r.messageId }, value))
     return;
   const c = r.context;
   if (!isText(c.operationId) || !isText(c.attemptId) || typeof c.snapshotDigest !== "string" || !/^[a-f0-9]{64}$/.test(c.snapshotDigest))
@@ -56,10 +61,9 @@ async function callMove(conn, request, timeoutMs = 5000) {
   const value = parseMoveResult(called.value);
   if (!value)
     return { kind: "unknown", reason: "unstructured move output" };
-  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== request.account || value.id !== request.messageId))
-    return { kind: "unknown", reason: "move result belongs to another account or message" };
-  if (request.action === "restore" && value.status === "moved" || request.action !== "restore" && value.status === "restored")
-    return { kind: "unknown", reason: "move result belongs to another action" };
+  const mismatch = moveResultMismatch(request, value);
+  if (mismatch)
+    return { kind: "unknown", reason: mismatch };
   return { kind: "result", value };
 }
 async function callMoveLookup(conn, requestId, timeoutMs = 5000) {
@@ -401,6 +405,9 @@ function historyMatches(old, snapshot, context, ownerRequestId, account, connect
   const input = snapshot.input;
   return !!message && old.requestId === key(capabilityId, ownerRequestId) && `mail.${old.action}` === capabilityId && old.context.operationId === context.operationId && old.context.attemptId === context.attemptId && old.context.snapshotDigest === context.snapshotDigest && old.account === account && old.messageId === message.canonicalId && snapshot.adapterId === connection.adapterId && snapshot.connectionId === connection.connectionId && snapshot.destinations.length === 1 && sameRef(snapshot.destinations[0], { ...connection, objectType: "account", canonicalId: account }) && (old.action === "restore" ? old.from === input.from : old.target === (capabilityId === "mail.trash" ? "trash" : input.target));
 }
+function uncertain(context, ownerRequestId) {
+  return { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:uncertain`, reportedAt: now2(), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The move outcome is unknown until matching historical evidence settles it." }, ownerRequestId } };
+}
 function resultFor(context, ownerRequestId, message, value) {
   const at = now2();
   const base = { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:${value.status}:${at}`, reportedAt: at };
@@ -441,10 +448,12 @@ function registerMailMoves(host, options = {}) {
             return resultFor(context, request.ownerRequestId, message, { status: "denied" });
           const requestId = key(capabilityId, request.ownerRequestId);
           const previous = await callMoveLookup(provider, requestId, options.timeoutMs);
-          if (previous?.status === "found") {
+          if (!previous || previous.status === "unavailable")
+            return uncertain(context, request.ownerRequestId);
+          if (previous.status === "found") {
             const old = previous.request;
             if (!historyMatches(old, request.snapshot, context, request.ownerRequestId, listing.account, connection, capabilityId))
-              return resultFor(context, request.ownerRequestId, message, { status: "conflict", folder: "unknown" });
+              return uncertain(context, request.ownerRequestId);
             return resultFor(context, request.ownerRequestId, message, previous.result);
           }
           if (capabilityId !== "mail.restore" && !listing.mail.some((mail) => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId))
@@ -466,7 +475,7 @@ function registerMailMoves(host, options = {}) {
             return resultFor(context, request.ownerRequestId, message, outcome.value);
           if (outcome.kind === "unsupported")
             return resultFor(context, request.ownerRequestId, message, { status: "unavailable" });
-          return { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:uncertain`, reportedAt: now2(), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The move outcome is unknown until lookup settles it." }, ownerRequestId: request.ownerRequestId } };
+          return uncertain(context, request.ownerRequestId);
         },
         async lookup(request) {
           const checkedAt = now2();
@@ -532,7 +541,7 @@ function refused(context, code) {
   const base = envelope(context, "refused");
   return { ...base, result: { kind: "failed", error: { code, message: "The approved Mail scope is unavailable." }, evidence: { kind: "no-effect", evidenceId: `${context.ownerRequestId}:refused`, observedAt: base.reportedAt, ownerRequestId: context.ownerRequestId, receipt: { code }, final: true } } };
 }
-function uncertain(context) {
+function uncertain2(context) {
   return { ...envelope(context, "uncertain"), result: { kind: "uncertain", error: { code: "mail.unknown", message: "The draft outcome requires historical lookup." }, ownerRequestId: context.ownerRequestId } };
 }
 function settled(connection, context, value) {
@@ -576,11 +585,11 @@ function connector(host, connection) {
         return await serialized(`${connection.adapterId}:${connection.connectionId}:${requestId(request.ownerRequestId)}`, async () => {
           const value = parseDraftResult(await bridge.invoke(connection, "draft", { version: 1, requestId: requestId(request.ownerRequestId), account: listing.account, messageId: mail.ref.messageId, recipient: mail.from.address, subject: mailReplySubject(mail.subject), body }));
           if (!value || value.account !== listing.account)
-            return uncertain(context);
+            return uncertain2(context);
           return settled(connection, context, value);
         });
       } catch {
-        return uncertain(context);
+        return uncertain2(context);
       }
     },
     async lookup(request) {

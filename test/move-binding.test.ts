@@ -162,7 +162,7 @@ describe("inactive Mail move bindings", () => {
       const stored = provider.requests.values().next().value!;
       if (stored.result.status !== "moved" && stored.result.status !== "restored") throw new Error("Expected a saved mutation");
       stored.result.status = action === "restore" ? "moved" : "restored";
-      const lookup = await binding(provider).connector(`mail.${action}`).lookup!({ lifecycleVersion: "1.0.0", operationId: approved.operationId, ownerRequestId: approved.ownerRequestId }, new AbortController().signal) as OperationLookup;
+      const lookup = await binding(provider, approved).connector(`mail.${action}`).lookup!({ lifecycleVersion: "1.0.0", operationId: approved.operationId, ownerRequestId: approved.ownerRequestId }, new AbortController().signal) as OperationLookup;
       expect(lookup.result.kind).toBe("unknown");
       expect(provider.effects).toHaveLength(1);
     }

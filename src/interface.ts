@@ -85,14 +85,19 @@ export function parseMoveResult(raw: unknown): MoveResult | undefined {
   return undefined;
 }
 
+function moveResultMismatch(request: { action: string; account: string; messageId: string }, value: MoveResult): string | undefined {
+  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== request.account || value.id !== request.messageId)) return "move result belongs to another account or message";
+  if ((request.action === "restore" && value.status === "moved") || (request.action !== "restore" && value.status === "restored")) return "move result belongs to another action";
+  return undefined;
+}
+
 export function parseMoveLookup(raw: unknown): MoveLookupResult | undefined {
   if (!isObject(raw)) return undefined;
   if (raw.status === "not_found" || raw.status === "unavailable") return { status: raw.status };
   const r = raw.request;
   const value = parseMoveResult(raw.result);
   if (raw.status !== "found" || !isObject(r) || !value || r.version !== INTERFACE_VERSION || !isText(r.requestId) || !isText(r.account) || !isText(r.messageId) || !isObject(r.context)) return undefined;
-  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== r.account || value.id !== r.messageId)) return undefined;
-  if ((r.action === "restore" && value.status === "moved") || (r.action !== "restore" && value.status === "restored")) return undefined;
+  if (typeof r.action !== "string" || moveResultMismatch({ action: r.action, account: r.account, messageId: r.messageId }, value)) return undefined;
   const c = r.context;
   if (!isText(c.operationId) || !isText(c.attemptId) || typeof c.snapshotDigest !== "string" || !/^[a-f0-9]{64}$/.test(c.snapshotDigest)) return undefined;
   const base = { version: r.version, requestId: r.requestId, account: r.account, messageId: r.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } };
@@ -108,8 +113,8 @@ export async function callMove(conn: MoveConnection, request: MoveRequest | Rest
   if (!called.ok) return { kind: "unknown", reason: called.reason };
   const value = parseMoveResult(called.value);
   if (!value) return { kind: "unknown", reason: "unstructured move output" };
-  if ((value.status === "moved" || value.status === "restored" || value.status === "exists") && (value.account !== request.account || value.id !== request.messageId)) return { kind: "unknown", reason: "move result belongs to another account or message" };
-  if ((request.action === "restore" && value.status === "moved") || (request.action !== "restore" && value.status === "restored")) return { kind: "unknown", reason: "move result belongs to another action" };
+  const mismatch = moveResultMismatch(request, value);
+  if (mismatch) return { kind: "unknown", reason: mismatch };
   return { kind: "result", value };
 }
 
