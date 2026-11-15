@@ -92,6 +92,15 @@ export async function probeReply() {
   const cloud = await scenario({ execution: { connection: () => provider }, snapshot: context => ({ ...snapshot(context), policy: "cloud" }) });
   assert.equal(cloud.ownerCalls.dispatch, 0);
 
+  const serialRepeat = await scenario({ execution: { connection: () => provider } });
+  checkCorrelation(serialRepeat);
+  assert.equal(seen.length, 2);
+  assert.equal(fake.draftCount, 1);
+  const serialConflict = await scenario({ execution: { connection: () => provider }, snapshot: context => mailReplyDraftSnapshot({ ...context, account: mailAccountRef(context.adapterId, context.connectionId, context.account), message: mailMessageRef(context.adapterId, context.connectionId, MESSAGE), body: "Different approved content" }) });
+  assert.equal(serialConflict.stages[0]?.state, "conflict");
+  assert.equal(seen.length, 3);
+  assert.equal(fake.draftCount, 1);
+
   const dir = mkdtempSync(join(tmpdir(), "helm-reply-fake-"));
   try {
     const statePath = join(dir, "state.json");
@@ -107,7 +116,7 @@ export async function probeReply() {
     assert.equal(state.lookups, 2);
     assert.deepEqual(state.draft, { id: "fake-native-draft", requestId: `${MAIL_REPLY_DRAFT_CAPABILITY}:conformance-request`, account: ACCOUNT_ONE, messageId: MESSAGE, recipient: "sender@example.test", subject: "Re: Example subject", body: BODY });
     assert.ok(!JSON.stringify(state).includes("attemptId"));
-    return { success, timed, noReplay, denied, foreign, cloud, native, effects: { fake: fake.draftCount, timeoutFake: interrupted.draftCount, native: state.creates }, reconstructionLimit: "Controlled in-process loader/factory/connector/host reconstruction; no OS process termination." };
+    return { success, timed, noReplay, denied, foreign, cloud, serialRepeat, serialConflict, native, effects: { fake: fake.draftCount, timeoutFake: interrupted.draftCount, native: state.creates }, reconstructionLimit: "Controlled in-process loader/factory/connector/host reconstruction; no OS process termination." };
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 if (import.meta.main) {

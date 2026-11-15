@@ -59,7 +59,8 @@ is advertised; this inactive package does not strengthen the existing interface.
 `bun run build:actions` builds this alternative; `check:actions` checks its committed
 bytes. `probe:reply` explicitly loads that package with invented data through the
 public `runMailActionScenario`, production host admission and durable journal. It
-checks exact confirmation/body/recipient/subject, one effect on repeat, missing
+checks exact confirmation/body/recipient/subject, one effect on repeat, serial
+same-ID/same-content returning the saved draft and changed-content conflict, missing
 version/method refusal, foreign account/connection refusal, and timeout recovery
 with original IDs and receipts after two loader/factory/connector/host reconstructions.
 The real Helm `CliConnection` uses a fake CLI that saves its invented effect to a
