@@ -17,3 +17,4 @@ jobs:
       - run: bun run probe:read
       - run: bun run check:actions
       - run: bun run probe:reply
+      - run: bun run probe:moves
