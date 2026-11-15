@@ -30,6 +30,8 @@ export interface MailConnection {
   move?(request: MoveRequest): Promise<unknown>;
   restore?(request: RestoreRequest): Promise<unknown>;
   lookupMove?(requestId: string): Promise<unknown>;
+  unsubscribe?(request: UnsubscribeRequest): Promise<unknown>;
+  lookupUnsubscribe?(requestId: string): Promise<unknown>;
 }
 
 export interface MoveContext {
@@ -226,4 +228,35 @@ export async function callLookup(
   return parsed.status === "found"
     ? { kind: "found", id: parsed.id, account: parsed.account }
     : { kind: parsed.status };
+}
+
+export interface UnsubscribeRequest {
+  version: number;
+  requestId: string;
+  account: string;
+  messageId: string;
+  context: MoveContext;
+}
+export type UnsubscribeResult =
+  | { status: "unsubscribed" | "exists"; id: string; account: string; host: string }
+  | { status: "missing" | "denied" | "unavailable" | "conflict" };
+export type UnsubscribeLookup = { status: "found"; action: "unsubscribe"; request: UnsubscribeRequest; result: UnsubscribeResult } | { status: "not_found" | "unavailable" };
+
+export function parseUnsubscribeResult(raw: unknown): UnsubscribeResult | undefined {
+  if (!isObject(raw)) return undefined;
+  if (raw.status === "missing" || raw.status === "denied" || raw.status === "unavailable" || raw.status === "conflict") return { status: raw.status };
+  if ((raw.status === "unsubscribed" || raw.status === "exists") && isText(raw.id) && isText(raw.account) && isText(raw.host) && raw.host.length <= 200) return { status: raw.status, id: raw.id, account: raw.account, host: raw.host };
+  return undefined;
+}
+
+export function parseUnsubscribeLookup(raw: unknown): UnsubscribeLookup | undefined {
+  if (!isObject(raw)) return undefined;
+  if (raw.status === "not_found" || raw.status === "unavailable") return { status: raw.status };
+  const r = raw.request;
+  const result = parseUnsubscribeResult(raw.result);
+  if (raw.status !== "found" || raw.action !== "unsubscribe" || !isObject(r) || !result || r.version !== 1 || !isText(r.requestId) || !isText(r.account) || !isText(r.messageId) || !isObject(r.context)) return undefined;
+  const c = r.context;
+  if (!isText(c.operationId) || !isText(c.attemptId) || typeof c.snapshotDigest !== "string" || !/^[a-f0-9]{64}$/.test(c.snapshotDigest)) return undefined;
+  if ((result.status === "unsubscribed" || result.status === "exists") && (result.id !== r.messageId || result.account !== r.account)) return undefined;
+  return { status: "found", action: "unsubscribe", request: { version: 1, requestId: r.requestId, account: r.account, messageId: r.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } }, result };
 }

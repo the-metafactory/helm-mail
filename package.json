@@ -16,7 +16,8 @@
     "check:actions": "bun scripts/build-actions.ts --check",
     "probe:reply": "bun scripts/probe-reply.ts",
     "probe:moves": "bun scripts/probe-moves.ts",
-    "probe:judgements": "bun scripts/probe-judgements.ts"
+    "probe:judgements": "bun scripts/probe-judgements.ts",
+    "probe:unsubscribe": "bun scripts/probe-unsubscribe.ts"
   },
   "devDependencies": {
     "@the-metafactory/cortex": "https://codeload.github.com/the-metafactory/cortex/tar.gz/refs/tags/v6.32.0",

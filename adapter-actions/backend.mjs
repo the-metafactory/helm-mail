@@ -130,6 +130,31 @@ async function guarded(call, timeoutMs) {
     clearTimeout(timer);
   }
 }
+function parseUnsubscribeResult(raw) {
+  if (!isObject(raw))
+    return;
+  if (raw.status === "missing" || raw.status === "denied" || raw.status === "unavailable" || raw.status === "conflict")
+    return { status: raw.status };
+  if ((raw.status === "unsubscribed" || raw.status === "exists") && isText(raw.id) && isText(raw.account) && isText(raw.host) && raw.host.length <= 200)
+    return { status: raw.status, id: raw.id, account: raw.account, host: raw.host };
+  return;
+}
+function parseUnsubscribeLookup(raw) {
+  if (!isObject(raw))
+    return;
+  if (raw.status === "not_found" || raw.status === "unavailable")
+    return { status: raw.status };
+  const r = raw.request;
+  const result = parseUnsubscribeResult(raw.result);
+  if (raw.status !== "found" || raw.action !== "unsubscribe" || !isObject(r) || !result || r.version !== 1 || !isText(r.requestId) || !isText(r.account) || !isText(r.messageId) || !isObject(r.context))
+    return;
+  const c = r.context;
+  if (!isText(c.operationId) || !isText(c.attemptId) || typeof c.snapshotDigest !== "string" || !/^[a-f0-9]{64}$/.test(c.snapshotDigest))
+    return;
+  if ((result.status === "unsubscribed" || result.status === "exists") && (result.id !== r.messageId || result.account !== r.account))
+    return;
+  return { status: "found", action: "unsubscribe", request: { version: 1, requestId: r.requestId, account: r.account, messageId: r.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } }, result };
+}
 
 // src/adapter/backend.ts
 import { createHash } from "node:crypto";
@@ -417,24 +442,121 @@ function registerMailJudgements(host) {
   }
 }
 
+// src/adapter/compose-declaration.ts
+function composeDeclaration(base, extra) {
+  if (base.adapterId !== extra.adapterId)
+    throw new Error("Declarations must name the same adapter.");
+  return {
+    ...base,
+    schemas: [...base.schemas, ...extra.schemas.filter((item) => !base.schemas.some((old) => old.schemaId === item.schemaId && old.version === item.version))],
+    objectTypes: [...base.objectTypes, ...extra.objectTypes.filter((item) => !base.objectTypes.some((old) => old.objectType === item.objectType))],
+    capabilities: [...base.capabilities, ...extra.capabilities]
+  };
+}
+
+// src/adapter/unsubscribe.ts
+import { mailUnsubscribeDeclaration, mailUnsubscribeSnapshot } from "@the-metafactory/cortex/desk-sdk";
+function withMailUnsubscribe(base) {
+  return composeDeclaration(base, mailUnsubscribeDeclaration(base.adapterId));
+}
+var key = (id) => `mail.unsubscribe:${id}`;
+var now2 = () => new Date().toISOString();
+function scoped(context, account) {
+  try {
+    const s = context.snapshot;
+    return mailUnsubscribeSnapshot({ ...s, account, input: s.input }).digest === s.digest;
+  } catch {
+    return false;
+  }
+}
+function envelope(c) {
+  return { lifecycleVersion: "1.0.0", operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest, resultId: `${c.attemptId}:${now2()}`, reportedAt: now2() };
+}
+function uncertain(c) {
+  return { ...envelope(c), result: { kind: "uncertain", ownerRequestId: c.ownerRequestId, error: { code: "mail.unsubscribe_unknown", message: "The provider outcome requires matching historical evidence." } } };
+}
+function settled(c, value) {
+  const base = envelope(c);
+  const evidence = { evidenceId: key(c.ownerRequestId), observedAt: base.reportedAt, ownerRequestId: c.ownerRequestId };
+  if (value.status === "unsubscribed" || value.status === "exists")
+    return { ...base, result: { kind: "succeeded", output: { ref: c.snapshot.target, host: value.host }, evidence: { ...evidence, kind: "effect", refs: [c.snapshot.target], receipt: { id: value.id, account: value.account, host: value.host } } } };
+  if (value.status === "conflict")
+    return uncertain(c);
+  return { ...base, result: { kind: "failed", error: { code: `mail.unsubscribe_${value.status}`, message: "The message cannot be unsubscribed through this connection." }, evidence: { ...evidence, kind: "no-effect", receipt: { status: value.status }, final: true } } };
+}
+function validResult(value, c, account, host) {
+  return value.status !== "unsubscribed" && value.status !== "exists" || value.account === account && value.id === c.snapshot.target?.canonicalId && value.host === host;
+}
+function matches(found, c, account, host) {
+  const r = found.request;
+  return scoped(c, account) && r.requestId === key(c.ownerRequestId) && r.account === account && r.messageId === c.snapshot.target?.canonicalId && r.context.operationId === c.operationId && r.context.attemptId === c.attemptId && r.context.snapshotDigest === c.snapshotDigest && validResult(found.result, c, account, host);
+}
+function registerMailUnsubscribe(host) {
+  host.registerConnector("mail.unsubscribe", (connection) => {
+    const identity = { kind: "action", ...connection, capabilityId: "mail.unsubscribe" };
+    const bridge = host.mailExecution;
+    const bound = bridge?.connection(connection);
+    if (!bridge || bound?.version !== 1 || !bound.methods.includes("unsubscribe") || !bound.methods.includes("lookupUnsubscribe"))
+      return identity;
+    const listingFor = async (c) => {
+      const listing = await host.mail.listed(connection);
+      const message = listing?.mail.find((m) => m.account === listing.account && m.ref.connection === connection.connectionId && m.ref.messageId === c.snapshot.target?.canonicalId);
+      return { listing, message };
+    };
+    const history = async (c) => parseUnsubscribeLookup(await bridge.invoke(connection, "lookupUnsubscribe", key(c.ownerRequestId)));
+    return {
+      ...identity,
+      writerOwner: "helm-mail.unsubscribe",
+      support: { lifecycleVersion: "1.0.0", ...connection, capabilityId: identity.capabilityId, declarationId: "helm-mail.unsubscribe.1", dedup: { kind: "none" }, operationLookup: "historical", conditionalUpdate: "none", cancellation: "none" },
+      async dispatch(request) {
+        const c = { operationId: request.operationId, attemptId: request.attemptId, ownerRequestId: request.ownerRequestId, snapshotDigest: request.snapshot.digest, snapshot: request.snapshot };
+        try {
+          const { listing, message } = await listingFor(c);
+          if (!listing || listing.health.state !== "fresh" || !scoped(c, listing.account))
+            return settled(c, { status: "denied" });
+          const old = await history(c);
+          if (!old || old.status === "unavailable")
+            return uncertain(c);
+          if (old.status === "found")
+            return matches(old, c, listing.account, message?.unsubscribe?.host) ? settled(c, old.result) : uncertain(c);
+          if (!message)
+            return settled(c, { status: "missing" });
+          if (!message.unsubscribe?.oneClick)
+            return settled(c, { status: "unavailable" });
+          const result = parseUnsubscribeResult(await bridge.invoke(connection, "unsubscribe", { version: 1, requestId: key(c.ownerRequestId), account: listing.account, messageId: message.ref.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } }));
+          return result && validResult(result, c, listing.account, message.unsubscribe.host) ? settled(c, result) : uncertain(c);
+        } catch {
+          return uncertain(c);
+        }
+      },
+      async lookup(request) {
+        const base = { lifecycleVersion: "1.0.0", operationId: request.operationId, checkedAt: now2() };
+        const unknown = { ...base, result: { kind: "unknown", reason: { code: "mail.unsubscribe_unknown", message: "No matching historical unsubscribe evidence is available." } } };
+        try {
+          const c = await bridge.lookupContext(connection, request);
+          const { listing, message } = await listingFor(c);
+          const old = await history(c);
+          return listing && old?.status === "found" && matches(old, c, listing.account, message?.unsubscribe?.host) ? { ...base, result: { kind: "known", response: settled(c, old.result) } } : unknown;
+        } catch {
+          return unknown;
+        }
+      }
+    };
+  });
+}
+
 // src/adapter/moves.ts
 import { mailMoveDeclaration } from "@the-metafactory/cortex/desk-sdk";
 var MOVE_CAPABILITIES = ["mail.move", "mail.trash", "mail.restore"];
 function withMailMoves(base) {
   if (base.adapterId !== "mail")
     throw new Error("Mail move bindings require the mail adapter.");
-  const moves = mailMoveDeclaration(base.adapterId);
-  return {
-    ...base,
-    schemas: [...base.schemas, ...moves.schemas.filter((item) => !base.schemas.some((old) => old.schemaId === item.schemaId && old.version === item.version))],
-    objectTypes: [...base.objectTypes, ...moves.objectTypes.filter((item) => !base.objectTypes.some((old) => old.objectType === item.objectType))],
-    capabilities: [...base.capabilities, ...moves.capabilities]
-  };
+  return composeDeclaration(base, mailMoveDeclaration(base.adapterId));
 }
 var isRecord = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 var sameRef = (left, right) => left.adapterId === right.adapterId && left.connectionId === right.connectionId && left.objectType === right.objectType && left.canonicalId === right.canonicalId;
-var key = (capabilityId, ownerRequestId) => `${capabilityId}:${ownerRequestId}`;
-var now2 = () => new Date().toISOString();
+var key2 = (capabilityId, ownerRequestId) => `${capabilityId}:${ownerRequestId}`;
+var now3 = () => new Date().toISOString();
 function messageOf(snapshot, connection) {
   const input = snapshot.input;
   if (!isRecord(input) || !isRecord(input.message))
@@ -451,13 +573,13 @@ function inScope(snapshot, connection, account) {
 function historyMatches(old, snapshot, context, ownerRequestId, account, connection, capabilityId) {
   const message = messageOf(snapshot, connection);
   const input = snapshot.input;
-  return !!message && old.requestId === key(capabilityId, ownerRequestId) && `mail.${old.action}` === capabilityId && old.context.operationId === context.operationId && old.context.attemptId === context.attemptId && old.context.snapshotDigest === context.snapshotDigest && old.account === account && old.messageId === message.canonicalId && inScope(snapshot, connection, account) && (old.action === "restore" ? old.from === input.from : old.target === (capabilityId === "mail.trash" ? "trash" : input.target));
+  return !!message && old.requestId === key2(capabilityId, ownerRequestId) && `mail.${old.action}` === capabilityId && old.context.operationId === context.operationId && old.context.attemptId === context.attemptId && old.context.snapshotDigest === context.snapshotDigest && old.account === account && old.messageId === message.canonicalId && inScope(snapshot, connection, account) && (old.action === "restore" ? old.from === input.from : old.target === (capabilityId === "mail.trash" ? "trash" : input.target));
 }
-function uncertain(context, ownerRequestId) {
-  return { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:uncertain`, reportedAt: now2(), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The move outcome is unknown until matching historical evidence settles it." }, ownerRequestId } };
+function uncertain2(context, ownerRequestId) {
+  return { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:uncertain`, reportedAt: now3(), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The move outcome is unknown until matching historical evidence settles it." }, ownerRequestId } };
 }
 function resultFor(context, ownerRequestId, message, value) {
-  const at = now2();
+  const at = now3();
   const base = { lifecycleVersion: "1.0.0", ...context, resultId: `${context.attemptId}:${value.status}:${at}`, reportedAt: at };
   if (value.status === "moved" || value.status === "restored" || value.status === "exists") {
     return { ...base, result: { kind: "succeeded", output: { ref: message, folder: value.folder }, evidence: { kind: "effect", evidenceId: `mail-move:${context.operationId}`, observedAt: at, ownerRequestId, receipt: { id: value.id, account: value.account, folder: value.folder, previousFolder: value.previousFolder }, refs: [message], ownerRevision: value.folder } } };
@@ -494,14 +616,14 @@ function registerMailMoves(host, options = {}) {
           const listing = await host.mail.listed(connection);
           if (!listing || listing.health.state !== "fresh" || !inScope(request.snapshot, connection, listing.account))
             return resultFor(context, request.ownerRequestId, message, { status: "denied" });
-          const requestId = key(capabilityId, request.ownerRequestId);
+          const requestId = key2(capabilityId, request.ownerRequestId);
           const previous = await callMoveLookup(provider, requestId, options.timeoutMs);
           if (!previous || previous.status === "unavailable")
-            return uncertain(context, request.ownerRequestId);
+            return uncertain2(context, request.ownerRequestId);
           if (previous.status === "found") {
             const old = previous.request;
             if (!historyMatches(old, request.snapshot, context, request.ownerRequestId, listing.account, connection, capabilityId))
-              return uncertain(context, request.ownerRequestId);
+              return uncertain2(context, request.ownerRequestId);
             return resultFor(context, request.ownerRequestId, message, previous.result);
           }
           if (capabilityId !== "mail.restore" && !listing.mail.some((mail) => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId))
@@ -523,10 +645,10 @@ function registerMailMoves(host, options = {}) {
             return resultFor(context, request.ownerRequestId, message, outcome.value);
           if (outcome.kind === "unsupported")
             return resultFor(context, request.ownerRequestId, message, { status: "unavailable" });
-          return uncertain(context, request.ownerRequestId);
+          return uncertain2(context, request.ownerRequestId);
         },
         async lookup(request) {
-          const checkedAt = now2();
+          const checkedAt = now3();
           const base = { lifecycleVersion: "1.0.0", operationId: request.operationId, checkedAt };
           let context;
           try {
@@ -537,7 +659,7 @@ function registerMailMoves(host, options = {}) {
           const listing = await host.mail.listed(connection);
           if (!listing)
             return { ...base, result: { kind: "denied", reason: { code: "mail.account_denied", message: "The connection is unavailable." } } };
-          const found = await callMoveLookup(provider, key(capabilityId, request.ownerRequestId), options.timeoutMs);
+          const found = await callMoveLookup(provider, key2(capabilityId, request.ownerRequestId), options.timeoutMs);
           if (!found || found.status !== "found")
             return { ...base, result: { kind: "unknown", reason: { code: "mail.lookup_unavailable", message: "The provider has no definitive move outcome." } } };
           const old = found.request;
@@ -553,12 +675,7 @@ function registerMailMoves(host, options = {}) {
 import { mailReplyDraftDeclaration } from "@the-metafactory/cortex/desk-sdk";
 var reply = mailReplyDraftDeclaration(ADAPTER_ID);
 var readDeclaration = declaration;
-var declaration2 = withMailJudgements(withMailMoves({
-  ...readDeclaration,
-  schemas: [...readDeclaration.schemas, ...reply.schemas],
-  objectTypes: [...readDeclaration.objectTypes, ...reply.objectTypes.filter((item) => !readDeclaration.objectTypes.some((read) => read.objectType === item.objectType))],
-  capabilities: [...readDeclaration.capabilities, ...reply.capabilities]
-}));
+var declaration2 = withMailJudgements(withMailUnsubscribe(withMailMoves(composeDeclaration(readDeclaration, reply))));
 
 // src/adapter-actions/backend.ts
 var CAPABILITY = MAIL_REPLY_DRAFT_CAPABILITY;
@@ -582,18 +699,18 @@ async function serialized(key, run) {
 function contextOf(request) {
   return { operationId: request.operationId, attemptId: request.attemptId, ownerRequestId: request.ownerRequestId, snapshotDigest: request.snapshot.digest, snapshot: request.snapshot };
 }
-function envelope(context, suffix) {
+function envelope2(context, suffix) {
   return { lifecycleVersion: "1.0.0", operationId: context.operationId, attemptId: context.attemptId, snapshotDigest: context.snapshotDigest, reportedAt: new Date().toISOString(), resultId: `${context.attemptId}:${suffix}` };
 }
 function refused(context, code) {
-  const base = envelope(context, "refused");
+  const base = envelope2(context, "refused");
   return { ...base, result: { kind: "failed", error: { code, message: "The approved Mail scope is unavailable." }, evidence: { kind: "no-effect", evidenceId: `${context.ownerRequestId}:refused`, observedAt: base.reportedAt, ownerRequestId: context.ownerRequestId, receipt: { code }, final: true } } };
 }
-function uncertain2(context) {
-  return { ...envelope(context, "uncertain"), result: { kind: "uncertain", error: { code: "mail.unknown", message: "The draft outcome requires historical lookup." }, ownerRequestId: context.ownerRequestId } };
+function uncertain3(context) {
+  return { ...envelope2(context, "uncertain"), result: { kind: "uncertain", error: { code: "mail.unknown", message: "The draft outcome requires historical lookup." }, ownerRequestId: context.ownerRequestId } };
 }
-function settled(connection, context, value) {
-  const base = envelope(context, value.status === "conflict" ? "conflict" : "saved");
+function settled2(connection, context, value) {
+  const base = envelope2(context, value.status === "conflict" ? "conflict" : "saved");
   if (value.status === "conflict")
     return { ...base, result: { kind: "conflict", error: { code: "mail.request_conflict", message: "The request ID already names a different draft." }, currentOwnerRevision: value.id, evidence: { kind: "no-effect", evidenceId: context.ownerRequestId, observedAt: base.reportedAt, ownerRequestId: context.ownerRequestId, receipt: value, final: true } } };
   const ref = { ...connection, objectType: "draft", canonicalId: value.id };
@@ -633,11 +750,11 @@ function connector(host, connection) {
         return await serialized(`${connection.adapterId}:${connection.connectionId}:${requestId(request.ownerRequestId)}`, async () => {
           const value = parseDraftResult(await bridge.invoke(connection, "draft", { version: 1, requestId: requestId(request.ownerRequestId), account: listing.account, messageId: mail.ref.messageId, recipient: mail.from.address, subject: mailReplySubject(mail.subject), body }));
           if (!value || value.account !== listing.account)
-            return uncertain2(context);
-          return settled(connection, context, value);
+            return uncertain3(context);
+          return settled2(connection, context, value);
         });
       } catch {
-        return uncertain2(context);
+        return uncertain3(context);
       }
     },
     async lookup(request) {
@@ -652,7 +769,7 @@ function connector(host, connection) {
         const mail = listing?.mail.find((item) => item.ref.connection === connection.connectionId && item.ref.messageId === context.snapshot.target?.canonicalId && item.account === account);
         const body = context.snapshot.input.body;
         if (found?.status === "found" && found.account === account && saved && mail && listing?.account === account && listing.health.state === "fresh" && scopeMatches(context, listing.account) && saved.requestId === requestId(request.ownerRequestId) && saved.account === account && saved.messageId === context.snapshot.target?.canonicalId && saved.body === body && saved.recipient === mail.from.address && saved.subject === mailReplySubject(mail.subject)) {
-          return { ...base, result: { kind: "known", response: settled(connection, context, { status: "exists", id: found.id, account: found.account }) } };
+          return { ...base, result: { kind: "known", response: settled2(connection, context, { status: "exists", id: found.id, account: found.account }) } };
         }
         return { ...base, result: { kind: "unknown", reason: { code: "mail.lookup_unknown", message: "No matching saved draft is known." } } };
       } catch {
@@ -665,6 +782,7 @@ function createDeskAdapter2(host) {
   const reads = createDeskAdapter(host);
   registerMailMoves(host);
   registerMailJudgements(host);
+  registerMailUnsubscribe(host);
   host.registerConnector(CAPABILITY, (connection) => connector(host, connection));
   return { ...reads, declaration: declaration2 };
 }
