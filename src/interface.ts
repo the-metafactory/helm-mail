@@ -32,6 +32,9 @@ export interface MailConnection {
   lookupMove?(requestId: string): Promise<unknown>;
   unsubscribe?(request: UnsubscribeRequest): Promise<unknown>;
   lookupUnsubscribe?(requestId: string): Promise<unknown>;
+  readonly reportKinds?: readonly ReportKind[];
+  report?(request: ReportRequest): Promise<unknown>;
+  lookupReport?(requestId: string): Promise<unknown>;
 }
 
 export interface MoveContext {
@@ -259,4 +262,96 @@ export function parseUnsubscribeLookup(raw: unknown): UnsubscribeLookup | undefi
   if (!isText(c.operationId) || !isText(c.attemptId) || typeof c.snapshotDigest !== "string" || !/^[a-f0-9]{64}$/.test(c.snapshotDigest)) return undefined;
   if ((result.status === "unsubscribed" || result.status === "exists") && (result.id !== r.messageId || result.account !== r.account)) return undefined;
   return { status: "found", action: "unsubscribe", request: { version: 1, requestId: r.requestId, account: r.account, messageId: r.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } }, result };
+}
+
+export const REPORT_KINDS = ["draft", "spam", "phishing"] as const;
+export type ReportKind = (typeof REPORT_KINDS)[number];
+export type ProviderReportKind = Exclude<ReportKind, "draft">;
+export const isProviderReport = (kind: ReportKind): kind is ProviderReportKind => kind !== "draft";
+
+export interface ReportMessage {
+  adapterId: string;
+  connectionId: string;
+  objectType: "message";
+  canonicalId: string;
+}
+
+export interface ReportRequest {
+  version: number;
+  requestId: string;
+  kind: ReportKind;
+  message: ReportMessage;
+}
+
+export interface ReportResult {
+  ref: ReportMessage;
+  folder: string;
+}
+
+export type ReportLookup =
+  | { status: "found"; request: ReportRequest; result: ReportResult }
+  | { status: "not_found" | "unavailable" };
+
+export type ReportOutcome =
+  | { kind: "result"; value: ReportResult }
+  | { kind: "unknown" | "unsupported"; reason: string };
+
+export type ReportConnection = Pick<MailConnection, "version" | "reportKinds" | "report" | "lookupReport" | "restore">;
+
+const isReportKind = (v: unknown): v is ReportKind => (REPORT_KINDS as readonly unknown[]).includes(v);
+
+function parseReportMessage(raw: unknown): ReportMessage | undefined {
+  if (!isObject(raw) || !isText(raw.adapterId) || !isText(raw.connectionId) || raw.objectType !== "message" || !isText(raw.canonicalId)) return undefined;
+  return { adapterId: raw.adapterId, connectionId: raw.connectionId, objectType: "message", canonicalId: raw.canonicalId };
+}
+
+export function parseReportRequest(raw: unknown): ReportRequest | undefined {
+  if (!isObject(raw) || raw.version !== INTERFACE_VERSION || !isText(raw.requestId) || !isReportKind(raw.kind)) return undefined;
+  const message = parseReportMessage(raw.message);
+  return message ? { version: INTERFACE_VERSION, requestId: raw.requestId, kind: raw.kind, message } : undefined;
+}
+
+export function parseReportResult(raw: unknown): ReportResult | undefined {
+  if (!isObject(raw) || !isText(raw.folder) || raw.folder.length > 200) return undefined;
+  const ref = parseReportMessage(raw.ref);
+  return ref ? { ref, folder: raw.folder } : undefined;
+}
+
+export function parseReportLookup(raw: unknown): ReportLookup | undefined {
+  if (!isObject(raw)) return undefined;
+  if (raw.status === "not_found" || raw.status === "unavailable") return { status: raw.status };
+  const request = parseReportRequest(raw.request);
+  const result = parseReportResult(raw.result);
+  if (raw.status !== "found" || !request || !result) return undefined;
+  if (result.ref.canonicalId !== request.message.canonicalId) return undefined;
+  return { status: "found", request, result };
+}
+
+/** Why a kind is unavailable on a connection, or undefined when it is offered. A provider report also needs restore, because Undo moves the mail back. */
+export function reportSupport(conn: ReportConnection, kind: ReportKind): string | undefined {
+  const bad = checkVersion(conn);
+  if (bad) return bad;
+  if (!Array.isArray(conn.reportKinds) || !conn.reportKinds.includes(kind)) return `connection does not declare the ${kind} report`;
+  if (typeof conn.report !== "function" || typeof conn.lookupReport !== "function") return "connection does not offer report and historical lookup";
+  if (isProviderReport(kind) && typeof conn.restore !== "function") return "connection cannot restore a provider report";
+  return undefined;
+}
+
+export const availableReportKinds = (conn: ReportConnection): ReportKind[] => REPORT_KINDS.filter(kind => !reportSupport(conn, kind));
+
+export async function callReport(conn: ReportConnection, request: ReportRequest, timeoutMs = 5000): Promise<ReportOutcome> {
+  const bad = reportSupport(conn, request.kind);
+  if (bad) return { kind: "unsupported", reason: bad };
+  const called = await guarded(() => conn.report!(request), timeoutMs);
+  if (!called.ok) return { kind: "unknown", reason: called.reason };
+  const value = parseReportResult(called.value);
+  if (!value) return { kind: "unknown", reason: "unstructured report output" };
+  if (value.ref.canonicalId !== request.message.canonicalId) return { kind: "unknown", reason: "report result belongs to another message" };
+  return { kind: "result", value };
+}
+
+export async function callReportLookup(conn: ReportConnection, kind: ReportKind, requestId: string, timeoutMs = 5000): Promise<ReportLookup | undefined> {
+  if (reportSupport(conn, kind)) return undefined;
+  const called = await guarded(() => conn.lookupReport!(requestId), timeoutMs);
+  return called.ok ? parseReportLookup(called.value) : undefined;
 }

@@ -9,11 +9,11 @@ export function withMailMoves(base: AdapterDeclaration): AdapterDeclaration {
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
-const sameRef = (left: ObjectReference, right: ObjectReference): boolean => left.adapterId === right.adapterId && left.connectionId === right.connectionId && left.objectType === right.objectType && left.canonicalId === right.canonicalId;
+export const sameRef = (left: ObjectReference, right: ObjectReference): boolean => left.adapterId === right.adapterId && left.connectionId === right.connectionId && left.objectType === right.objectType && left.canonicalId === right.canonicalId;
 const key = (capabilityId: string, ownerRequestId: string): string => `${capabilityId}:${ownerRequestId}`;
 const now = () => new Date().toISOString();
 
-function messageOf(snapshot: ApprovedSnapshot, connection: DeskAdapterConnection): ObjectReference | undefined {
+export function messageOf(snapshot: ApprovedSnapshot, connection: DeskAdapterConnection): ObjectReference | undefined {
   const input = snapshot.input;
   if (!isRecord(input) || !isRecord(input.message)) return undefined;
   const m = input.message;
@@ -22,7 +22,7 @@ function messageOf(snapshot: ApprovedSnapshot, connection: DeskAdapterConnection
   return snapshot.target === undefined || !sameRef(snapshot.target, message) ? undefined : message;
 }
 
-function inScope(snapshot: ApprovedSnapshot, connection: DeskAdapterConnection, account: string): boolean {
+export function inScope(snapshot: ApprovedSnapshot, connection: DeskAdapterConnection, account: string): boolean {
   return snapshot.adapterId === connection.adapterId && snapshot.connectionId === connection.connectionId
     && snapshot.destinations.length === 1 && sameRef(snapshot.destinations[0]!, { ...connection, objectType: "account", canonicalId: account });
 }

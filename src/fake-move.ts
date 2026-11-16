@@ -16,7 +16,7 @@ export class FakeMoveConnection extends FakeConnection {
   readonly restore?: (request: RestoreRequest) => Promise<unknown>;
   timeoutAfterEffect: boolean;
   private readonly moveAccount: string;
-  private readonly previous = new Map<string, string>();
+  protected readonly previous = new Map<string, string>();
 
   constructor(options: FakeMoveOptions = {}) {
     super({ account: options.account });
