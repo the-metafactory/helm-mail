@@ -6,7 +6,7 @@
   "domainContractVersion": "1.0.0",
   "backend": {
     "entry": "backend.mjs",
-    "sha256": "09288dedc59b309a6f966a0d4902e4ad33157def38ac78137d380e888d1489f5"
+    "sha256": "f54fe72cef71de54dddd8a772e75fd87fdfa08b8558249eb50beaa5099aab7b6"
   },
   "declaration": {
     "adapterId": "mail",
@@ -1446,6 +1446,167 @@
             }
           }
         }
+      },
+      {
+        "schemaId": "mail.mail.invitation",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "adapterId",
+            "connectionId",
+            "objectType",
+            "canonicalId"
+          ],
+          "properties": {
+            "adapterId": {
+              "type": "string",
+              "const": "mail"
+            },
+            "connectionId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "objectType": {
+              "type": "string",
+              "const": "invitation"
+            },
+            "canonicalId": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mail.invitation.input",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "message",
+            "invitation",
+            "expectedRevision"
+          ],
+          "properties": {
+            "message": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "message"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "invitation": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "invitation"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "expectedRevision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        }
+      },
+      {
+        "schemaId": "mail.mail.invitation.output",
+        "version": "1.0.0",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "ref",
+            "revision"
+          ],
+          "properties": {
+            "ref": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapterId",
+                "connectionId",
+                "objectType",
+                "canonicalId"
+              ],
+              "properties": {
+                "adapterId": {
+                  "type": "string",
+                  "const": "mail"
+                },
+                "connectionId": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "objectType": {
+                  "type": "string",
+                  "const": "invitation"
+                },
+                "canonicalId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
+            "revision": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500
+            }
+          }
+        }
       }
     ],
     "objectTypes": [
@@ -1472,6 +1633,15 @@
         "label": "Account",
         "schemaRef": {
           "schemaId": "mail.mail.account",
+          "version": "1.0.0"
+        },
+        "relationships": []
+      },
+      {
+        "objectType": "invitation",
+        "label": "invitation",
+        "schemaRef": {
+          "schemaId": "mail.mail.invitation",
           "version": "1.0.0"
         },
         "relationships": []
@@ -1851,6 +2021,106 @@
         },
         "outputSchemaRef": {
           "schemaId": "mail.mail.report.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.invitation.accept",
+        "label": "Accept",
+        "kind": "action",
+        "objectTypes": [
+          "invitation"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.mail.invitation.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.invitation.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.invitation.decline",
+        "label": "Decline",
+        "kind": "action",
+        "objectTypes": [
+          "invitation"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.mail.invitation.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.invitation.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.invitation.tentative",
+        "label": "Tentative",
+        "kind": "action",
+        "objectTypes": [
+          "invitation"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.mail.invitation.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.invitation.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.invitation.remove",
+        "label": "Remove declined invitation",
+        "kind": "action",
+        "objectTypes": [
+          "invitation"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.mail.invitation.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.invitation.output",
+          "version": "1.0.0"
+        },
+        "errorSchemaRef": {
+          "schemaId": "mail.mail.error",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "capabilityId": "mail.invitation.restore",
+        "label": "Restore declined invitation",
+        "kind": "action",
+        "objectTypes": [
+          "invitation"
+        ],
+        "inputSchemaRef": {
+          "schemaId": "mail.mail.invitation.input",
+          "version": "1.0.0"
+        },
+        "outputSchemaRef": {
+          "schemaId": "mail.mail.invitation.output",
           "version": "1.0.0"
         },
         "errorSchemaRef": {
