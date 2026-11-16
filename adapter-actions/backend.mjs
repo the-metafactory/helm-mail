@@ -155,6 +155,71 @@ function parseUnsubscribeLookup(raw) {
     return;
   return { status: "found", action: "unsubscribe", request: { version: 1, requestId: r.requestId, account: r.account, messageId: r.messageId, context: { operationId: c.operationId, attemptId: c.attemptId, snapshotDigest: c.snapshotDigest } }, result };
 }
+var REPORT_KINDS = ["draft", "spam", "phishing"];
+var isProviderReport = (kind) => kind !== "draft";
+var isReportKind = (v) => REPORT_KINDS.includes(v);
+function parseReportMessage(raw) {
+  if (!isObject(raw) || !isText(raw.adapterId) || !isText(raw.connectionId) || raw.objectType !== "message" || !isText(raw.canonicalId))
+    return;
+  return { adapterId: raw.adapterId, connectionId: raw.connectionId, objectType: "message", canonicalId: raw.canonicalId };
+}
+function parseReportRequest(raw) {
+  if (!isObject(raw) || raw.version !== INTERFACE_VERSION || !isText(raw.requestId) || !isReportKind(raw.kind))
+    return;
+  const message = parseReportMessage(raw.message);
+  return message ? { version: INTERFACE_VERSION, requestId: raw.requestId, kind: raw.kind, message } : undefined;
+}
+function parseReportResult(raw) {
+  if (!isObject(raw) || !isText(raw.folder) || raw.folder.length > 200)
+    return;
+  const ref = parseReportMessage(raw.ref);
+  return ref ? { ref, folder: raw.folder } : undefined;
+}
+function parseReportLookup(raw) {
+  if (!isObject(raw))
+    return;
+  if (raw.status === "not_found" || raw.status === "unavailable")
+    return { status: raw.status };
+  const request = parseReportRequest(raw.request);
+  const result = parseReportResult(raw.result);
+  if (raw.status !== "found" || !request || !result)
+    return;
+  if (result.ref.canonicalId !== request.message.canonicalId)
+    return;
+  return { status: "found", request, result };
+}
+function reportSupport(conn, kind) {
+  const bad = checkVersion(conn);
+  if (bad)
+    return bad;
+  if (!Array.isArray(conn.reportKinds) || !conn.reportKinds.includes(kind))
+    return `connection does not declare the ${kind} report`;
+  if (typeof conn.report !== "function" || typeof conn.lookupReport !== "function")
+    return "connection does not offer report and historical lookup";
+  if (isProviderReport(kind) && typeof conn.restore !== "function")
+    return "connection cannot restore a provider report";
+  return;
+}
+async function callReport(conn, request, timeoutMs = 5000) {
+  const bad = reportSupport(conn, request.kind);
+  if (bad)
+    return { kind: "unsupported", reason: bad };
+  const called = await guarded(() => conn.report(request), timeoutMs);
+  if (!called.ok)
+    return { kind: "unknown", reason: called.reason };
+  const value = parseReportResult(called.value);
+  if (!value)
+    return { kind: "unknown", reason: "unstructured report output" };
+  if (value.ref.canonicalId !== request.message.canonicalId)
+    return { kind: "unknown", reason: "report result belongs to another message" };
+  return { kind: "result", value };
+}
+async function callReportLookup(conn, kind, requestId, timeoutMs = 5000) {
+  if (reportSupport(conn, kind))
+    return;
+  const called = await guarded(() => conn.lookupReport(requestId), timeoutMs);
+  return called.ok ? parseReportLookup(called.value) : undefined;
+}
 
 // src/adapter/backend.ts
 import { createHash } from "node:crypto";
@@ -671,11 +736,116 @@ function registerMailMoves(host, options = {}) {
     });
 }
 
+// src/adapter/reports.ts
+import { mailReportDeclaration } from "@the-metafactory/cortex/desk-sdk";
+var REPORT_CAPABILITY = { draft: "mail.report.draft", spam: "mail.report.spam", phishing: "mail.report.phishing" };
+var REPORT_CAPABILITIES = REPORT_KINDS.map((kind) => REPORT_CAPABILITY[kind]);
+var now4 = () => new Date().toISOString();
+var key3 = (capabilityId, ownerRequestId) => `${capabilityId}:${ownerRequestId}`;
+function withMailReports(base, kinds = REPORT_KINDS) {
+  if (base.adapterId !== "mail")
+    throw new Error("Mail report bindings require the mail adapter.");
+  const extra = mailReportDeclaration(base.adapterId, kinds);
+  const known = new Set(base.capabilities.map((item) => item.capabilityId));
+  return composeDeclaration(base, { ...extra, capabilities: extra.capabilities.filter((item) => !known.has(item.capabilityId)) });
+}
+function envelope2(context, suffix) {
+  return { lifecycleVersion: "1.0.0", operationId: context.operationId, attemptId: context.attemptId, snapshotDigest: context.snapshotDigest, resultId: `${context.attemptId}:${suffix}`, reportedAt: now4() };
+}
+var REFUSALS = {
+  missing: ["mail.message_missing", "The message no longer exists."],
+  denied: ["mail.account_denied", "The account is unavailable to this connection."],
+  unavailable: ["mail.unavailable", "This connection cannot perform the report."]
+};
+function refused(context, ownerRequestId, why) {
+  const base = envelope2(context, `refused:${why}`);
+  const [code, message] = REFUSALS[why];
+  return { ...base, result: { kind: "failed", error: { code, message }, evidence: { kind: "no-effect", evidenceId: `mail-report:${context.operationId}:${why}`, observedAt: base.reportedAt, ownerRequestId, receipt: { status: why }, final: true } } };
+}
+function uncertain3(context, ownerRequestId) {
+  return { ...envelope2(context, "uncertain"), result: { kind: "uncertain", error: { code: "mail.provider_uncertain", message: "The report outcome is unknown until matching historical evidence settles it." }, ownerRequestId } };
+}
+function reported(context, ownerRequestId, kind, message, value) {
+  const base = envelope2(context, "reported");
+  return { ...base, result: { kind: "succeeded", output: { ref: message, folder: value.folder }, evidence: { kind: "effect", evidenceId: `mail-report:${context.operationId}`, observedAt: base.reportedAt, ownerRequestId, receipt: { kind, folder: value.folder }, refs: [message], ownerRevision: value.folder } } };
+}
+function historyMatches2(old, kind, snapshot, ownerRequestId, account, connection) {
+  const message = messageOf(snapshot, connection);
+  return !!message && old.requestId === key3(REPORT_CAPABILITY[kind], ownerRequestId) && old.kind === kind && sameRef(old.message, message) && inScope(snapshot, connection, account);
+}
+function registerMailReports(host, options = {}) {
+  for (const kind of options.kinds ?? REPORT_KINDS) {
+    const capabilityId = REPORT_CAPABILITY[kind];
+    host.registerConnector(capabilityId, (connection) => {
+      const bridge = host.mailExecution;
+      const bound = bridge?.connection(connection);
+      const offered = (method) => !!bound && bound.version === 1 && bound.methods.includes(method);
+      const provider = bridge && offered("report") && offered("lookupReport") ? {
+        version: 1,
+        reportKinds: options.kinds ?? REPORT_KINDS,
+        report: (request) => bridge.invoke(connection, "report", request),
+        lookupReport: (requestId) => bridge.invoke(connection, "lookupReport", requestId),
+        ...offered("restore") ? { restore: () => Promise.reject(new Error("Undo runs through the restore binding.")) } : {}
+      } : undefined;
+      const identity = { kind: "action", ...connection, capabilityId };
+      if (!bridge || !provider || reportSupport(provider, kind))
+        return identity;
+      return {
+        ...identity,
+        writerOwner: "mail-report",
+        support: { lifecycleVersion: "1.0.0", ...connection, capabilityId, declarationId: "mail-report-interface-1", dedup: { kind: "none" }, operationLookup: "historical", conditionalUpdate: "none", cancellation: "none", ...isProviderReport(kind) ? { compensationCapabilityId: "mail.restore" } : {} },
+        async dispatch(request) {
+          const context = { operationId: request.operationId, attemptId: request.attemptId, snapshotDigest: request.snapshot.digest };
+          const message = messageOf(request.snapshot, connection);
+          if (!message || request.snapshot.capabilityId !== capabilityId)
+            return refused(context, request.ownerRequestId, "denied");
+          const listing = await host.mail.listed(connection);
+          if (!listing || listing.health.state !== "fresh" || !inScope(request.snapshot, connection, listing.account))
+            return refused(context, request.ownerRequestId, "denied");
+          if (!listing.mail.some((mail) => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId))
+            return refused(context, request.ownerRequestId, "missing");
+          const requestId = key3(capabilityId, request.ownerRequestId);
+          const previous = await callReportLookup(provider, kind, requestId, options.timeoutMs);
+          if (!previous || previous.status === "unavailable")
+            return uncertain3(context, request.ownerRequestId);
+          if (previous.status === "found") {
+            return historyMatches2(previous.request, kind, request.snapshot, request.ownerRequestId, listing.account, connection) && sameRef(previous.result.ref, message) ? reported(context, request.ownerRequestId, kind, message, previous.result) : uncertain3(context, request.ownerRequestId);
+          }
+          const outcome = await callReport(provider, { version: INTERFACE_VERSION, requestId, kind, message: { adapterId: message.adapterId, connectionId: message.connectionId, objectType: "message", canonicalId: message.canonicalId } }, options.timeoutMs);
+          if (outcome.kind === "result")
+            return sameRef(outcome.value.ref, message) ? reported(context, request.ownerRequestId, kind, message, outcome.value) : uncertain3(context, request.ownerRequestId);
+          return outcome.kind === "unsupported" ? refused(context, request.ownerRequestId, "unavailable") : uncertain3(context, request.ownerRequestId);
+        },
+        async lookup(request) {
+          const base = { lifecycleVersion: "1.0.0", operationId: request.operationId, checkedAt: now4() };
+          const unknown = { ...base, result: { kind: "unknown", reason: { code: "mail.lookup_unavailable", message: "The provider has no definitive report outcome." } } };
+          let context;
+          try {
+            context = await bridge.lookupContext(connection, request);
+          } catch {
+            return { ...unknown, result: { kind: "unknown", reason: { code: "mail.lookup_unavailable", message: "Original approved context is unavailable." } } };
+          }
+          const listing = await host.mail.listed(connection);
+          if (!listing)
+            return { ...base, result: { kind: "denied", reason: { code: "mail.account_denied", message: "The connection is unavailable." } } };
+          const found = await callReportLookup(provider, kind, key3(capabilityId, request.ownerRequestId), options.timeoutMs);
+          if (!found || found.status !== "found")
+            return unknown;
+          const message = messageOf(context.snapshot, connection);
+          if (!message || context.snapshot.capabilityId !== capabilityId || !historyMatches2(found.request, kind, context.snapshot, request.ownerRequestId, listing.account, connection) || !sameRef(found.result.ref, message))
+            return { ...base, result: { kind: "denied", reason: { code: "mail.account_denied", message: "The result belongs to another connection scope." } } };
+          return { ...base, result: { kind: "known", response: reported(context, request.ownerRequestId, kind, message, found.result) } };
+        }
+      };
+    });
+  }
+}
+
 // src/adapter-actions/manifest.ts
 import { mailReplyDraftDeclaration } from "@the-metafactory/cortex/desk-sdk";
 var reply = mailReplyDraftDeclaration(ADAPTER_ID);
 var readDeclaration = declaration;
-var declaration2 = withMailJudgements(withMailUnsubscribe(withMailMoves(composeDeclaration(readDeclaration, reply))));
+var declaration2 = withMailReports(withMailJudgements(withMailUnsubscribe(withMailMoves(composeDeclaration(readDeclaration, reply)))));
 
 // src/adapter-actions/backend.ts
 var CAPABILITY = MAIL_REPLY_DRAFT_CAPABILITY;
@@ -699,18 +869,18 @@ async function serialized(key, run) {
 function contextOf(request) {
   return { operationId: request.operationId, attemptId: request.attemptId, ownerRequestId: request.ownerRequestId, snapshotDigest: request.snapshot.digest, snapshot: request.snapshot };
 }
-function envelope2(context, suffix) {
+function envelope3(context, suffix) {
   return { lifecycleVersion: "1.0.0", operationId: context.operationId, attemptId: context.attemptId, snapshotDigest: context.snapshotDigest, reportedAt: new Date().toISOString(), resultId: `${context.attemptId}:${suffix}` };
 }
-function refused(context, code) {
-  const base = envelope2(context, "refused");
+function refused2(context, code) {
+  const base = envelope3(context, "refused");
   return { ...base, result: { kind: "failed", error: { code, message: "The approved Mail scope is unavailable." }, evidence: { kind: "no-effect", evidenceId: `${context.ownerRequestId}:refused`, observedAt: base.reportedAt, ownerRequestId: context.ownerRequestId, receipt: { code }, final: true } } };
 }
-function uncertain3(context) {
-  return { ...envelope2(context, "uncertain"), result: { kind: "uncertain", error: { code: "mail.unknown", message: "The draft outcome requires historical lookup." }, ownerRequestId: context.ownerRequestId } };
+function uncertain4(context) {
+  return { ...envelope3(context, "uncertain"), result: { kind: "uncertain", error: { code: "mail.unknown", message: "The draft outcome requires historical lookup." }, ownerRequestId: context.ownerRequestId } };
 }
 function settled2(connection, context, value) {
-  const base = envelope2(context, value.status === "conflict" ? "conflict" : "saved");
+  const base = envelope3(context, value.status === "conflict" ? "conflict" : "saved");
   if (value.status === "conflict")
     return { ...base, result: { kind: "conflict", error: { code: "mail.request_conflict", message: "The request ID already names a different draft." }, currentOwnerRevision: value.id, evidence: { kind: "no-effect", evidenceId: context.ownerRequestId, observedAt: base.reportedAt, ownerRequestId: context.ownerRequestId, receipt: value, final: true } } };
   const ref = { ...connection, objectType: "draft", canonicalId: value.id };
@@ -740,21 +910,21 @@ function connector(host, connection) {
       const context = contextOf(request);
       const listing = await host.mail.listed(connection);
       if (!listing || listing.health.state !== "fresh" || !scopeMatches(context, listing.account))
-        return refused(context, "mail.scope_denied");
+        return refused2(context, "mail.scope_denied");
       const target = request.snapshot.target;
       const mail = listing.mail.find((item) => item.ref.connection === connection.connectionId && item.ref.messageId === target?.canonicalId && item.account === listing.account);
       if (!mail || request.snapshot.adapterId !== connection.adapterId || request.snapshot.connectionId !== connection.connectionId)
-        return refused(context, "mail.message_missing");
+        return refused2(context, "mail.message_missing");
       const body = request.snapshot.input.body;
       try {
         return await serialized(`${connection.adapterId}:${connection.connectionId}:${requestId(request.ownerRequestId)}`, async () => {
           const value = parseDraftResult(await bridge.invoke(connection, "draft", { version: 1, requestId: requestId(request.ownerRequestId), account: listing.account, messageId: mail.ref.messageId, recipient: mail.from.address, subject: mailReplySubject(mail.subject), body }));
           if (!value || value.account !== listing.account)
-            return uncertain3(context);
+            return uncertain4(context);
           return settled2(connection, context, value);
         });
       } catch {
-        return uncertain3(context);
+        return uncertain4(context);
       }
     },
     async lookup(request) {
@@ -781,6 +951,7 @@ function connector(host, connection) {
 function createDeskAdapter2(host) {
   const reads = createDeskAdapter(host);
   registerMailMoves(host);
+  registerMailReports(host);
   registerMailJudgements(host);
   registerMailUnsubscribe(host);
   host.registerConnector(CAPABILITY, (connection) => connector(host, connection));
