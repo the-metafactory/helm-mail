@@ -35,6 +35,10 @@ export interface MailConnection {
   readonly reportKinds?: readonly ReportKind[];
   report?(request: ReportRequest): Promise<unknown>;
   lookupReport?(requestId: string): Promise<unknown>;
+  invitationReply?(request: InvitationRequest): Promise<unknown>;
+  invitationRemove?(request: InvitationRequest): Promise<unknown>;
+  invitationRestore?(request: InvitationRequest): Promise<unknown>;
+  lookupInvitation?(requestId: string): Promise<unknown>;
 }
 
 export interface MoveContext {
@@ -354,4 +358,114 @@ export async function callReportLookup(conn: ReportConnection, kind: ReportKind,
   if (reportSupport(conn, kind)) return undefined;
   const called = await guarded(() => conn.lookupReport!(requestId), timeoutMs);
   return called.ok ? parseReportLookup(called.value) : undefined;
+}
+
+export const INVITATION_REPLY_KINDS = ["accept", "decline", "tentative"] as const;
+export type InvitationReplyKind = (typeof INVITATION_REPLY_KINDS)[number];
+export type InvitationVerb = "invitationReply" | "invitationRemove" | "invitationRestore";
+
+export interface InvitationObject {
+  adapterId: string;
+  connectionId: string;
+  objectType: "message" | "invitation";
+  canonicalId: string;
+}
+
+export interface InvitationRequest {
+  version: number;
+  requestId: string;
+  message: InvitationObject;
+  invitation: InvitationObject;
+  expectedRevision: string;
+  reply?: InvitationReplyKind;
+}
+
+export interface InvitationResult {
+  ref: InvitationObject;
+  revision: string;
+}
+
+export type InvitationLookup =
+  | { status: "found"; request: InvitationRequest; result: InvitationResult }
+  | { status: "not_found" | "unavailable" };
+
+export type InvitationRefusalReason = "changed" | "missing" | "denied";
+
+/** A connection rejects an invitation call with this when the provider refuses it: "changed" carries the revision the invitation has now. */
+export class InvitationRefusal extends Error {
+  readonly name = "InvitationRefusal";
+  constructor(readonly reason: InvitationRefusalReason, readonly currentRevision?: string) {
+    super(`The invitation call was refused: ${reason}.`);
+  }
+}
+
+export type InvitationOutcome =
+  | { kind: "result"; value: InvitationResult }
+  | { kind: "refused"; reason: InvitationRefusalReason; currentRevision?: string }
+  | { kind: "unknown" | "unsupported"; reason: string };
+
+export type InvitationConnection = Pick<MailConnection, "version" | "invitationReply" | "invitationRemove" | "invitationRestore" | "lookupInvitation">;
+
+const isInvitationObject = (type: "message" | "invitation") => (raw: unknown): InvitationObject | undefined =>
+  isObject(raw) && isText(raw.adapterId) && isText(raw.connectionId) && raw.objectType === type && isText(raw.canonicalId)
+    ? { adapterId: raw.adapterId, connectionId: raw.connectionId, objectType: type, canonicalId: raw.canonicalId } : undefined;
+const parseInvitationMessage = isInvitationObject("message");
+const parseInvitationRef = isInvitationObject("invitation");
+
+export function parseInvitationRequest(raw: unknown): InvitationRequest | undefined {
+  if (!isObject(raw) || raw.version !== INTERFACE_VERSION || !isText(raw.requestId) || !isText(raw.expectedRevision)) return undefined;
+  const message = parseInvitationMessage(raw.message);
+  const invitation = parseInvitationRef(raw.invitation);
+  if (!message || !invitation) return undefined;
+  if (raw.reply !== undefined && !(INVITATION_REPLY_KINDS as readonly unknown[]).includes(raw.reply)) return undefined;
+  return { version: INTERFACE_VERSION, requestId: raw.requestId, message, invitation, expectedRevision: raw.expectedRevision, ...(raw.reply !== undefined ? { reply: raw.reply as InvitationReplyKind } : {}) };
+}
+
+export function parseInvitationResult(raw: unknown): InvitationResult | undefined {
+  if (!isObject(raw) || !isText(raw.revision) || raw.revision.length > 500) return undefined;
+  const ref = parseInvitationRef(raw.ref);
+  return ref ? { ref, revision: raw.revision } : undefined;
+}
+
+export function parseInvitationLookup(raw: unknown): InvitationLookup | undefined {
+  if (!isObject(raw)) return undefined;
+  if (raw.status === "not_found" || raw.status === "unavailable") return { status: raw.status };
+  const request = parseInvitationRequest(raw.request);
+  const result = parseInvitationResult(raw.result);
+  if (raw.status !== "found" || !request || !result || result.ref.canonicalId !== request.invitation.canonicalId) return undefined;
+  return { status: "found", request, result };
+}
+
+/** Why an invitation verb is unavailable on a connection, or undefined when it is offered. Every verb needs historical lookup. */
+export function invitationSupport(conn: InvitationConnection, verb: InvitationVerb): string | undefined {
+  const bad = checkVersion(conn);
+  if (bad) return bad;
+  if (typeof conn[verb] !== "function" || typeof conn.lookupInvitation !== "function") return `connection does not offer ${verb} and historical lookup`;
+  return undefined;
+}
+
+export async function callInvitation(conn: InvitationConnection, verb: InvitationVerb, request: InvitationRequest, timeoutMs = 5000): Promise<InvitationOutcome> {
+  const bad = invitationSupport(conn, verb);
+  if (bad) return { kind: "unsupported", reason: bad };
+  const called = await guarded(async () => {
+    try { return await conn[verb]!(request); }
+    catch (error) { return error instanceof InvitationRefusal || (isObject(error) && error.name === "InvitationRefusal") ? { refusal: { reason: (error as InvitationRefusal).reason, currentRevision: (error as InvitationRefusal).currentRevision } } : Promise.reject(error); }
+  }, timeoutMs);
+  if (!called.ok) return { kind: "unknown", reason: called.reason };
+  const raw = called.value;
+  if (isObject(raw) && isObject(raw.refusal)) {
+    const { reason, currentRevision } = raw.refusal;
+    if (reason !== "changed" && reason !== "missing" && reason !== "denied") return { kind: "unknown", reason: "unstructured refusal" };
+    return { kind: "refused", reason, ...(isText(currentRevision) ? { currentRevision } : {}) };
+  }
+  const value = parseInvitationResult(raw);
+  if (!value) return { kind: "unknown", reason: "unstructured invitation output" };
+  if (value.ref.canonicalId !== request.invitation.canonicalId) return { kind: "unknown", reason: "invitation result belongs to another invitation" };
+  return { kind: "result", value };
+}
+
+export async function callInvitationLookup(conn: InvitationConnection, verb: InvitationVerb, requestId: string, timeoutMs = 5000): Promise<InvitationLookup | undefined> {
+  if (invitationSupport(conn, verb)) return undefined;
+  const called = await guarded(() => conn.lookupInvitation!(requestId), timeoutMs);
+  return called.ok ? parseInvitationLookup(called.value) : undefined;
 }

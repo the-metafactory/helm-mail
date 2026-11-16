@@ -16,6 +16,7 @@ import { createDeskAdapter as createReads } from "../adapter/backend";
 import { registerMailJudgements } from "../adapter/judgements";
 import { registerMailUnsubscribe } from "../adapter/unsubscribe";
 import { registerMailMoves } from "../adapter/moves";
+import { registerMailInvitations } from "../adapter/invitations";
 import { registerMailReports } from "../adapter/reports";
 import { declaration } from "./manifest";
 
@@ -126,6 +127,7 @@ export function createDeskAdapter(host: DeskAdapterHost): DeskAdapterDefinition 
   const reads = createReads(host);
   registerMailMoves(host);
   registerMailReports(host);
+  registerMailInvitations(host);
   registerMailJudgements(host);
   registerMailUnsubscribe(host);
   host.registerConnector(CAPABILITY, connection => connector(host, connection));
