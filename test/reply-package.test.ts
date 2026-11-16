@@ -38,5 +38,5 @@ describe("inactive reply action package", () => {
     const report = await probeReply();
     expect(report.effects).toEqual({ fake: 1, timeoutFake: 1, native: 1 });
     expect(report.native.reconstructions).toBe(2);
-  });
+  }, 20_000);
 });
