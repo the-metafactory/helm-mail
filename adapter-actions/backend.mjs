@@ -931,7 +931,7 @@ function registerMailInvitations(host, options = {}) {
             return refused(context, request.ownerRequestId, "missing");
           const outcome = await callInvitation(provider, verb, expected, options.timeoutMs);
           if (outcome.kind === "result")
-            return done(context, request.ownerRequestId, action, approved.invitation, outcome.value);
+            return !sameRef(outcome.value.ref, approved.invitation) ? uncertain3(context, request.ownerRequestId) : done(context, request.ownerRequestId, action, approved.invitation, outcome.value);
           if (outcome.kind === "refused")
             return outcome.reason === "changed" && outcome.currentRevision ? changed(context, request.ownerRequestId, outcome.currentRevision) : refused(context, request.ownerRequestId, outcome.reason === "changed" ? "unavailable" : outcome.reason);
           return outcome.kind === "unsupported" ? refused(context, request.ownerRequestId, "unavailable") : uncertain3(context, request.ownerRequestId);
