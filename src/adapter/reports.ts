@@ -58,13 +58,13 @@ export function registerMailReports(host: DeskAdapterHost, options: ReportBindin
     host.registerConnector(capabilityId, connection => {
       const bridge = host.mailExecution;
       const bound = bridge?.connection(connection);
-      const offered = (method: "report" | "lookupReport" | "restore") => !!bound && bound.version === 1 && bound.methods.includes(method);
+      const offered = (method: "report" | "lookupReport" | "restore" | "move" | "lookupMove") => !!bound && bound.version === 1 && bound.methods.includes(method);
       const provider: ReportConnection | undefined = bridge && offered("report") && offered("lookupReport") ? {
         version: 1,
         reportKinds: options.kinds ?? REPORT_KINDS,
         report: request => bridge.invoke(connection, "report", request),
         lookupReport: requestId => bridge.invoke(connection, "lookupReport", requestId),
-        ...(offered("restore") ? { restore: () => Promise.reject(new Error("Undo runs through the restore binding.")) } : {}),
+        ...(offered("restore") && offered("move") && offered("lookupMove") ? { restore: () => Promise.reject(new Error("Undo runs through the restore binding.")) } : {}),
       } : undefined;
       const identity = { kind: "action" as const, ...connection, capabilityId };
       if (!bridge || !provider || reportSupport(provider, kind)) return identity;
@@ -77,7 +77,7 @@ export function registerMailReports(host: DeskAdapterHost, options: ReportBindin
           if (!message || request.snapshot.capabilityId !== capabilityId) return refused(context, request.ownerRequestId, "denied");
           const listing = await host.mail.listed(connection);
           if (!listing || listing.health.state !== "fresh" || !inScope(request.snapshot, connection, listing.account)) return refused(context, request.ownerRequestId, "denied");
-          if (!listing.mail.some(mail => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId)) return refused(context, request.ownerRequestId, "missing");
+          const present = listing.mail.some(mail => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId);
           const requestId = key(capabilityId, request.ownerRequestId);
           const previous = await callReportLookup(provider, kind, requestId, options.timeoutMs);
           if (!previous || previous.status === "unavailable") return uncertain(context, request.ownerRequestId);
@@ -85,6 +85,7 @@ export function registerMailReports(host: DeskAdapterHost, options: ReportBindin
             return historyMatches(previous.request, kind, request.snapshot, request.ownerRequestId, listing.account, connection) && sameRef(previous.result.ref as ObjectReference, message)
               ? reported(context, request.ownerRequestId, kind, message, previous.result) : uncertain(context, request.ownerRequestId);
           }
+          if (!present) return refused(context, request.ownerRequestId, "missing");
           const outcome = await callReport(provider, { version: INTERFACE_VERSION, requestId, kind, message: { adapterId: message.adapterId, connectionId: message.connectionId, objectType: "message", canonicalId: message.canonicalId } }, options.timeoutMs);
           if (outcome.kind === "result") return sameRef(outcome.value.ref as ObjectReference, message) ? reported(context, request.ownerRequestId, kind, message, outcome.value) : uncertain(context, request.ownerRequestId);
           return outcome.kind === "unsupported" ? refused(context, request.ownerRequestId, "unavailable") : uncertain(context, request.ownerRequestId);

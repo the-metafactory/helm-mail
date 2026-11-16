@@ -28,11 +28,11 @@ function request(kind: string, id = "operation-one"): DispatchRequest {
   };
 }
 
-function binding(provider: FakeReportConnection, options: { listed?: boolean; original?: DispatchRequest; methods?: ("report" | "lookupReport" | "restore")[] } = {}) {
+function binding(provider: FakeReportConnection, options: { listed?: boolean; original?: DispatchRequest; methods?: ("report" | "lookupReport" | "restore" | "move" | "lookupMove")[] } = {}) {
   const bridge = fakeBridge({ one: ACCOUNT }, { mail: options.listed === false ? [] : [item(MESSAGE, ACCOUNT, "Synthetic message")] });
   const factories = new Map<string, DeskConnectorFactory>();
   const host: DeskAdapterHost = { ...bridge.host, mailExecution: {
-    connection: () => ({ version: 1, methods: options.methods ?? ["report", "lookupReport", "restore"] }),
+    connection: () => ({ version: 1, methods: options.methods ?? ["report", "lookupReport", "restore", "move", "lookupMove"] }),
     invoke: async (_connection, method, input) => method === "report" ? provider.report(input as never) : provider.lookupReport!(input as string),
     lookupContext: async () => { if (!options.original) throw new Error("No fixture approval"); const o = options.original; return { operationId: o.operationId, attemptId: o.attemptId, ownerRequestId: o.ownerRequestId, snapshotDigest: o.snapshot.digest, snapshot: o.snapshot }; },
   }, registerConnector(id, factory) { factories.set(id, factory); } };
@@ -97,6 +97,9 @@ describe("inactive Mail report bindings", () => {
     expect(connector("draft").dispatch).toBeDefined();
     expect(connector("spam").dispatch).toBeUndefined();
     expect(binding(fresh(), { methods: ["report"] })("draft").dispatch).toBeUndefined();
+    const noMove = binding(fresh(), { methods: ["report", "lookupReport", "restore", "lookupMove"] });
+    expect(noMove("draft").dispatch).toBeDefined();
+    expect(noMove("spam").dispatch).toBeUndefined();
   });
 
   test("a missing message or another account runs nothing", async () => {

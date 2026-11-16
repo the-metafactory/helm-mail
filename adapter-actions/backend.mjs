@@ -785,7 +785,7 @@ function registerMailReports(host, options = {}) {
         reportKinds: options.kinds ?? REPORT_KINDS,
         report: (request) => bridge.invoke(connection, "report", request),
         lookupReport: (requestId) => bridge.invoke(connection, "lookupReport", requestId),
-        ...offered("restore") ? { restore: () => Promise.reject(new Error("Undo runs through the restore binding.")) } : {}
+        ...offered("restore") && offered("move") && offered("lookupMove") ? { restore: () => Promise.reject(new Error("Undo runs through the restore binding.")) } : {}
       } : undefined;
       const identity = { kind: "action", ...connection, capabilityId };
       if (!bridge || !provider || reportSupport(provider, kind))
@@ -802,8 +802,7 @@ function registerMailReports(host, options = {}) {
           const listing = await host.mail.listed(connection);
           if (!listing || listing.health.state !== "fresh" || !inScope(request.snapshot, connection, listing.account))
             return refused(context, request.ownerRequestId, "denied");
-          if (!listing.mail.some((mail) => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId))
-            return refused(context, request.ownerRequestId, "missing");
+          const present = listing.mail.some((mail) => mail.account === listing.account && mail.ref.connection === connection.connectionId && mail.ref.messageId === message.canonicalId);
           const requestId = key3(capabilityId, request.ownerRequestId);
           const previous = await callReportLookup(provider, kind, requestId, options.timeoutMs);
           if (!previous || previous.status === "unavailable")
@@ -811,6 +810,8 @@ function registerMailReports(host, options = {}) {
           if (previous.status === "found") {
             return historyMatches2(previous.request, kind, request.snapshot, request.ownerRequestId, listing.account, connection) && sameRef(previous.result.ref, message) ? reported(context, request.ownerRequestId, kind, message, previous.result) : uncertain3(context, request.ownerRequestId);
           }
+          if (!present)
+            return refused(context, request.ownerRequestId, "missing");
           const outcome = await callReport(provider, { version: INTERFACE_VERSION, requestId, kind, message: { adapterId: message.adapterId, connectionId: message.connectionId, objectType: "message", canonicalId: message.canonicalId } }, options.timeoutMs);
           if (outcome.kind === "result")
             return sameRef(outcome.value.ref, message) ? reported(context, request.ownerRequestId, kind, message, outcome.value) : uncertain3(context, request.ownerRequestId);

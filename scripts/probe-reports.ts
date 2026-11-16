@@ -69,7 +69,7 @@ export async function probeReports() {
   assert.equal(noRestore.reportDrafts.length, 1);
 
   const interrupted = fresh({ timeoutAfterReport: true });
-  const timed = { version: 1, report: async (r: never) => { await Promise.race([interrupted.report(r), new Promise(done => setTimeout(done, 20))]); throw new Error("Synthetic timeout after native result"); }, lookupReport: (id: string) => interrupted.lookupReport!(id), restore: interrupted.restore!, lookupMove: (id: string) => interrupted.lookupMove(id) };
+  const timed = { version: 1, report: async (r: never) => { await Promise.race([interrupted.report(r), new Promise(done => setTimeout(done, 20))]); throw new Error("Synthetic timeout after native result"); }, lookupReport: (id: string) => interrupted.lookupReport!(id), restore: interrupted.restore!, move: (r: never) => interrupted.move(r), lookupMove: (id: string) => interrupted.lookupMove(id) };
   reports.timeout = await run(timed, "mail.report.spam", reportSnapshot("spam"), { steps: ["restart", "reconcile"] });
   assert.equal(reports.timeout.stages.at(-1)?.state, "succeeded");
   assert.equal(interrupted.submissions.length, 1);
