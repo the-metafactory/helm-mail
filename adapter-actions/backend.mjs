@@ -397,6 +397,51 @@ function createDeskAdapter(host) {
   };
 }
 
+// src/adapter/judgements.ts
+import { judgementCapability, mailJudgementDeclaration } from "@the-metafactory/cortex/desk-sdk";
+var JUDGEMENT_ACTIONS = ["unimportant", "block-domain", "correct", "not-phishing", "snooze", "snooze-cancel", "waiting", "undo"];
+var JUDGEMENT_CAPABILITIES = JUDGEMENT_ACTIONS.map(judgementCapability);
+var JUDGEMENT_UNDO_CAPABILITY = judgementCapability("undo");
+var JUDGEMENT_UNDO = {
+  unimportant: "yes",
+  "block-domain": "yes",
+  correct: "by-correction",
+  "not-phishing": "yes",
+  snooze: "yes",
+  "snooze-cancel": "yes",
+  waiting: "yes",
+  undo: "no"
+};
+function withMailJudgements(base) {
+  if (base.adapterId !== "mail")
+    throw new Error("Mail judgement bindings require the mail adapter.");
+  const judgements = mailJudgementDeclaration(base.adapterId);
+  const known = new Set(base.capabilities.map((item) => item.capabilityId));
+  return {
+    ...base,
+    schemas: [...base.schemas, ...judgements.schemas.filter((item) => !base.schemas.some((old) => old.schemaId === item.schemaId && old.version === item.version))],
+    objectTypes: [...base.objectTypes, ...judgements.objectTypes.filter((item) => !base.objectTypes.some((old) => old.objectType === item.objectType))],
+    capabilities: [...base.capabilities, ...judgements.capabilities.filter((item) => JUDGEMENT_CAPABILITIES.includes(item.capabilityId) && !known.has(item.capabilityId))]
+  };
+}
+function registerMailJudgements(host) {
+  for (const action of JUDGEMENT_ACTIONS) {
+    const capabilityId = judgementCapability(action);
+    host.registerConnector(capabilityId, (connection) => {
+      const identity = { kind: "action", ...connection, capabilityId };
+      const bridge = host.mailJudgements;
+      if (!bridge)
+        return identity;
+      return {
+        ...identity,
+        writerOwner: "mail-judgement",
+        support: { lifecycleVersion: "1.0.0", ...connection, capabilityId, declarationId: "mail-judgement-owner", dedup: { kind: "guaranteed", scope: "connection-capability", retentionMs: 604800000, bindsSnapshot: true, concurrent: true }, operationLookup: "none", conditionalUpdate: "none", cancellation: "none", ...JUDGEMENT_UNDO[action] === "no" ? {} : { compensationCapabilityId: JUDGEMENT_UNDO_CAPABILITY } },
+        dispatch: (request) => bridge.changeJudgement(request)
+      };
+    });
+  }
+}
+
 // src/adapter/compose-declaration.ts
 function composeDeclaration(base, extra) {
   if (base.adapterId !== extra.adapterId)
@@ -444,7 +489,7 @@ function validResult(value, c, account, host) {
 }
 function matches(found, c, account, host) {
   const r = found.request;
-  return scoped(c, account) && r.requestId === key(c.ownerRequestId) && r.account === account && r.messageId === c.snapshot.target?.canonicalId && r.context.operationId === c.operationId && r.context.attemptId === c.attemptId && r.context.snapshotDigest === c.snapshotDigest && validResult(found.result, c, account, host);
+  return scoped(c, account) && r.requestId === key(c.ownerRequestId) && r.account === account && r.messageId === c.snapshot.target?.canonicalId && r.context.operationId === c.operationId && r.context.attemptId === c.attemptId && r.context.snapshotDigest === c.snapshotDigest && (found.result.status !== "unsubscribed" && found.result.status !== "exists" || found.result.account === account && found.result.id === c.snapshot.target?.canonicalId && (host === undefined || found.result.host === host));
 }
 function registerMailUnsubscribe(host) {
   host.registerConnector("mail.unsubscribe", (connection) => {
@@ -630,7 +675,7 @@ function registerMailMoves(host, options = {}) {
 import { mailReplyDraftDeclaration } from "@the-metafactory/cortex/desk-sdk";
 var reply = mailReplyDraftDeclaration(ADAPTER_ID);
 var readDeclaration = declaration;
-var declaration2 = withMailUnsubscribe(withMailMoves(composeDeclaration(readDeclaration, reply)));
+var declaration2 = withMailJudgements(withMailUnsubscribe(withMailMoves(composeDeclaration(readDeclaration, reply))));
 
 // src/adapter-actions/backend.ts
 var CAPABILITY = MAIL_REPLY_DRAFT_CAPABILITY;
@@ -736,6 +781,7 @@ function connector(host, connection) {
 function createDeskAdapter2(host) {
   const reads = createDeskAdapter(host);
   registerMailMoves(host);
+  registerMailJudgements(host);
   registerMailUnsubscribe(host);
   host.registerConnector(CAPABILITY, (connection) => connector(host, connection));
   return { ...reads, declaration: declaration2 };

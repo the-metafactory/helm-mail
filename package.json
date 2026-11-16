@@ -16,6 +16,7 @@
     "check:actions": "bun scripts/build-actions.ts --check",
     "probe:reply": "bun scripts/probe-reply.ts",
     "probe:moves": "bun scripts/probe-moves.ts",
+    "probe:judgements": "bun scripts/probe-judgements.ts",
     "probe:unsubscribe": "bun scripts/probe-unsubscribe.ts"
   },
   "devDependencies": {
